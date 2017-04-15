@@ -1,7 +1,7 @@
-0ff1d7385cf5b40b4cf28a8b48b16e34 *DESCRIPTION
-e2ba5083a7c856fd4e0563d7e5170244 *NAMESPACE
+0121afbbfa8f77d44831dbe95c600eec *DESCRIPTION
+c1e4c2a0410901c63eaa0b797d68842c *NAMESPACE
 7b9953b4a9508ec21f621a0636b372dd *R/RcppExports.R
-24554147466985c70a84e3b0a0de2eec *R/bigKRLS.R
+60f4e0bd81528b9d53e6bcdd0b6fcf9f *R/bigKRLS.R
 5c08af93bad5398e7c3a8bb81d9288f6 *R/init.R
 54f6574b64c5016a9bc8ddf4c1d745a1 *R/utils.R
 e8d1c904f642c408b85dbc2b60fa9001 *README.md
@@ -9,11 +9,11 @@ a11cf5ffdfa4978ec245e5a3d3767b04 *build/vignette.rds
 61b97be35191cfa9a48a0b6d75a13417 *inst/doc/bigKRLS_basics.R
 532296201824ad7283b857f5baab5f62 *inst/doc/bigKRLS_basics.Rmd
 94652dfcabf53a7deabca94f47e725d4 *inst/doc/bigKRLS_basics.html
-65a756f1f4f6aea265e8fe2aa93de2ef *man/bigKRLS.Rd
+9ce4b7f3614723807b1caaf212fd6865 *man/bigKRLS.Rd
 5a71ab77a3ecf0ebddc6dc70b395722a *man/load.bigKRLS.Rd
 5880fab8ddd6952fc1191ae712de2755 *man/predict.bigKRLS.Rd
 f33bae04bd37f6fda82b38cc69ab39dc *man/save.bigKRLS.Rd
-bbc86a02b8959dc8b71cc86c81d3c24c *man/shiny.bigKRLS.Rd
+2c1be582edb39b9b62273a9a81f5c3c2 *man/shiny.bigKRLS.Rd
 25ebac6a64f9c9121da8187af10aedee *man/summary.bigKRLS.Rd
 03616eac969a2cd8374c7372f3e84ad3 *src/Makevars
 03616eac969a2cd8374c7372f3e84ad3 *src/Makevars.win

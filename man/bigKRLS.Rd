@@ -56,7 +56,7 @@ Kernel Regularized Least Squares (KRLS) is a kernel-based, complexity-penalized 
 
 Major Updates
 
-1. C++ integration. We re-implement most major computations in the model in C++ via Rcpp and RcppArmadillo. These changes produce up to a 50\% runtime decrease compared to the original R implementation.
+1. C++ integration. We re-implement most major computations in the model in C++ via Rcpp and RcppArmadillo. These changes produce up to a 50\% runtime decrease compared to the original R implementation even on a single core.
 
 2. Leaner algorithm. Because of the Tikhonov regularization and parameter tuning strategies used in KRLS, the method of estimation is inherently memory-heavy O(N^2), making memory savings important even in small- and medium-sized applications. We develop and implement a new local derivatives algorithm, which reduces peak memory usage by approximately an order of magnitude, and cut the number of computations needed to find regularization parameter in half.
 
@@ -87,4 +87,13 @@ X <- cbind(X, sample(0:1, replace = TRUE, size = nrow(X)))
 b <- runif(ncol(X))
 y <- X \%*\% b + rnorm(nrow(X))
 out <- bigKRLS(y, X, Ncores=2)
+}
+\author{
+\strong{Maintainer}: Pete Mohanty \email{pete.mohanty@gmail.com}
+
+Authors:
+\itemize{
+  \item Robert Shaffer \email{rbshaffer@utexas.edu}
+}
+
 }
