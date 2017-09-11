@@ -42,8 +42,8 @@
 "_PACKAGE"
 
 #' bigKRLS
-#' @param y A vector of observations on the dependent variable; missing values not allowed. May be base R matrix or library(bigmemory) big.matrix.
-#' @param X A matrix of observations of the independent variables; factors, missing values, and constant vectors not allowed. May be base R matrix or library(bigmemory) big.matrix.
+#' @param y A vector of numeric observations on the dependent variable; missing values not allowed. May be base R matrix or library(bigmemory) big.matrix.
+#' @param X A matrix of numeric observations of the independent variables; factors, missing values, and constant vectors not allowed. May be base R matrix or library(bigmemory) big.matrix.
 #' @param sigma Bandwidth parameter, shorthand for sigma squared. Default: sigma <- ncol(X). Since x variables are standardized, facilitates interprepation of the Gaussian kernel, exp(-dist(X)^2/sigma) a.k.a the similarity score. Of course, if dist between observation i and j is 0, there similarity is 1 since exp(0) = 1. Suppose i and j differ by one standard deviation on each dimension. Then the similarity is exp(-ncol(X)/sigma) = exp(-1) = 0.368.  
 #' @param derivative Logical: Estimate derivatives (as opposed to just coefficients)? Recommended for interpretability.
 #' @param which.derivatives Optional. For which columns of X should marginal effects be estimated ("variables of interest"). If derivative=TRUE and which.derivative=NULL, all will marginal effects estimated (default settings). Example: out = bigKRLS(..., which.derivatives = c(1, 3, 5))
@@ -52,31 +52,31 @@
 #' @param L Lower bound of Golden Search for lambda. 
 #' @param U Upper bound of Golden Search for lambda.
 #' @param tol tolerance parameter for Golden Search for lambda. Default: N / 1000.
-#' @param noisy Logical: Display progress to console (intermediate output, time stamps, etc.)? (Recommended particularly for SSH users, who should also use X11 forwarding to see Rcpp progress display.)
 #' @param model_subfolder_name If not null, will save estimates to this subfolder of your current working directory. Alternatively, use save.bigKRLS() on the outputted object.
 #' @param overwrite.existing Logical: overwrite contents in folder 'model_subfolder_name'? If FALSE, appends lowest possible number to model_subfolder_name name (e.g., ../myresults3/). 
 #' @param Ncores Number of processor cores to use. Default = ncol(X) or N - 2 (whichever is smaller). More than N - 2 NOT recommended. Uses library(parallel) unless Ncores = 1.
+#' @param acf Logical. Experimental; default == FALSE. Calculate Neffective as function of mean absolute auto-correlation in X to correct p-values? Requires ncol(X) > 2. Intended for data that may violate i.i.d. To correct P values with this effective sample size, call summary(out, pval_type = "acf").
+#' @param noisy Logical: Display detailed version of progress to console (intermediate output, time stamps, etc.) as opposed to minimal display? Default: if(N > 2000) TRUE else FALSE. SSH users should use X11 forwarding to see Rcpp progress display.  
+#' @param instructions Display syntax after estimation with other library(bigKRLS) functions that can be used on output? Logical. (This parameter is different from noisy for the sake of crossvalidation.bigKRLS().)
 #' @return bigKRLS Object containing slope and uncertainty estimates; summary() and predict() defined for class bigKRLS, as is shiny.bigKRLS().
 #' @examples
 #'N <- 500  # proceed with caution above N = 5,000 for system with 8 gigs made avaiable to R
 #'P <- 4
 #'X <- matrix(rnorm(N*P), ncol=P)
 #'X <- cbind(X, sample(0:1, replace = TRUE, size = nrow(X)))
-#'b <- runif(ncol(X))
+#'b <- runif(ncol(X)) 
 #'y <- X %*% b + rnorm(nrow(X))
-#' out <- bigKRLS(y, X, Ncores=2)
+#' out <- bigKRLS(y, X, Ncores=1)
 #' @export
 bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.derivatives = NULL,
                      vcov.est = TRUE, 
-                     lambda = NULL, L = NULL, U = NULL, tol = NULL, noisy = TRUE,
-                     model_subfolder_name=NULL, overwrite.existing=F, Ncores=NULL)
+                     lambda = NULL, L = NULL, U = NULL, tol = NULL,
+                     model_subfolder_name=NULL, overwrite.existing=F, Ncores=NULL, acf = FALSE, noisy = NULL, instructions = T)
 {
   
-  # Ensure Windows RStudio is new enough for dependencies
+  # Ensure RStudio is new enough for dependencies, see init.R
   check_platform()
   
-  if(noisy){cat("starting bigKRLS... \n\nvalidating inputs, prepping data, etc... \n")}
-
   if(!is.null(model_subfolder_name)){
     stopifnot(is.character(model_subfolder_name))
     
@@ -93,10 +93,8 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
       model_subfolder_name <- tmp.name
     }
     
-    dir.create(model_subfolder_name)
-    wd.original <- getwd()
-    setwd(paste(c(wd.original, .Platform$file.sep, model_subfolder_name), collapse=""))
-    cat("\nmodel estimates will be saved to:\n\n", getwd(), "\n\n")
+    dir.create(model_subfolder_name, showWarnings=FALSE)
+    cat("\nmodel estimates will be saved to:\n\n", model_subfolder_name, "\n\n")
     
   }
   
@@ -110,6 +108,16 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
   return.big.rectangles <- is.big.matrix(X)               # X matrix, derivatives -- how to return?
   return.big.squares <- is.big.matrix(X) | nrow(X) > 2500 # Kernel, variance matrices -- how to return?
   
+  w <- list()                                              # w will become bigKRLS object
+  w[["X"]] <- if(return.big.rectangles) deepcopy(X) else X 
+  # deepcopy(X) prevents pointer to X from being inadvertently standardized 
+  # in AND outside of bigKRLS()
+  
+  if(is.null(noisy)) {
+    noisy <- if(nrow(X) > 2000) TRUE else FALSE
+  }else{
+    stopifnot(is.logical(noisy))
+  }
   if(noisy){
     if(return.big.rectangles){
       cat('X inputted as big.matrix object so X and derivatives will be returned as big.matrix objects.')
@@ -117,13 +125,13 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
       cat('X inputted as base R matrix so X and derivatives will be returned as base R matrices.\n')
     }
     if(return.big.squares){
-      cat('input given as a bigmatrix object or N > 2,500.\nKernel and other N x N matrices will be returned as bigmatrices.\n')
+      cat('Input given as a bigmatrix object or N > 2,500.\nKernel and other N x N matrices will be returned as bigmatrices.\n')
     }else{
-      cat('input given as a base R matrix object and N < 2,500.\nThe outputted object will consist entirely of base R objects.\n')
+      cat('Input given as a base R matrix object and N < 2,500.\nThe outputted object will consist entirely of base R objects.\n')
     }
   }
-  if((return.big.rectangles | return.big.squares) & is.null(model_subfolder_name)){
-    cat("\nWARNING: The outputted object will contain bigmemory objects.\nTo avoid crashing R, use save.bigKRLS() on the outputted object, not save().\nAlternatively, stop and re-estimate with bigKRLS(..., model.subfolder.name=\"myoutput\").\n\n")
+  if((return.big.rectangles | return.big.squares) & is.null(model_subfolder_name) & instructions){
+    cat("\nNOTE: The outputted object will contain bigmemory objects.\nTo avoid crashing R, use save.bigKRLS() on the outputted object, not save().\n\n")
   }
   
   # all X columns must have labels to prevent various post-estimation nuissance errors
@@ -136,6 +144,7 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
   colnames(X) <- xlabs
   
   X <- to.big.matrix(X)
+  X.init.sd <- colsd(X)
   y <- to.big.matrix(y, p = 1)
   
   miss.ind <- colna(X)
@@ -145,9 +154,8 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
   }
   n <- nrow(X)
   p <- ncol(X)
-  
-  X.init <- deepcopy(X)
-  X.init.sd <- colsd(X)
+  # correcting p values as f(pairwise correlation of rows of X) only possible + nontrivial when ncol(X) > 2 
+  acf <- acf & p > 2
   
   if(!is.null(which.derivatives)){
     if(!derivative){
@@ -155,13 +163,13 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
     }
     stopifnot(sum(which.derivatives %in% 1:p) == length(which.derivatives))
     if(noisy){
-      cat("\nmarginal effects will be calculated for the following x variables:\n")
+      cat("\nMarginal effects will be calculated for the following x variables:\n")
       cat(which.derivatives, sep=", ")
     }
   }
   
   if (min(X.init.sd) == 0) {
-    stop(paste("the following columns in X are constant and must be removed:",
+    stop(paste("The following columns in X are constant and must be removed:",
                which(X.init.sd == 0)))
   }
   
@@ -171,7 +179,7 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
   
   if(!is.null(lambda)){
     stopifnot(is.vector(lambda), length(lambda) == 1, is.numeric(lambda), lambda > 0)
-    if(noisy){cat("Using user-inputted value of lambda:", lambda, "\n")}
+    if(noisy){cat("Using user-inputted value of lambda:", lambda, ".\n")}
   }
   
   if(!is.null(sigma)){stopifnot(is.vector(sigma), length(sigma) == 1, is.numeric(sigma), sigma > 0)}
@@ -179,10 +187,10 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
   
   if (is.null(tol)) { # tolerance parameter for lambda search
     tol <- n/1000
-    if(noisy){cat("\nUsing default tolerance parameter, n/1000 =", tol, "\n")}
+    if(noisy){cat("\nUsing default tolerance parameter, n/1000 = ", tol, ".\n", sep='')}
   } else {
     stopifnot(is.vector(tol), length(tol) == 1, is.numeric(tol), tol > 0)
-    if(noisy){cat("\nUsing user-inputted tolerance parameter:", tol, "\n")}
+    if(noisy){cat("\nUsing user-inputted tolerance parameter:", tol, ".\n")}
   }
   
   # removing eigentruncation option for now - re-add soon
@@ -192,12 +200,12 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
   #}
   
   stopifnot(is.logical(derivative), is.logical(vcov.est))
-  if (derivative & !vcov.est) { stop("vcov.est is needed to get derivatives (derivative==TRUE requires vcov.est=TRUE)")}
+  if (derivative & !vcov.est) { stop("vcov.est is needed to get derivatives (derivative==TRUE requires vcov.est=TRUE).")}
   
   x.is.binary <- apply(X, 2, function(x){length(unique(x))}) == 2 
   if(noisy & sum(x.is.binary) > 0){
-    cat(paste("\nFirst differences will be computed for the following binary variables: ", 
-              toString(colnames(X)[x.is.binary], sep=', '), sep=""))
+    cat(paste("\nFirst differences will be computed for the following (binary) columns of X: ", 
+              toString((1:p)[x.is.binary], sep=', '), sep=""), '\n\n')
   }
   
   y.init <- deepcopy(y)
@@ -211,66 +219,74 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
   
   # by default uses the same number of cores as X variables or N available - 2, whichever is smaller
   Ncores <- ifelse(is.null(Ncores), min(c(parallel::detectCores() - 2, ncol(X))), Ncores)
-  cat(Ncores, "cores will be used.\n")
+  if(noisy){cat(Ncores, "cores will be used.\n")}
   
-  if(noisy){cat("\ndata successfully cleaned...\n\nstep 1/5: getting Kernel...\n"); timestamp()}
+  if(noisy){cat('\n'); timestamp(); cat("Step 1/5: getting kernel..."); }
   
   K <- NULL  # K is the kernel
   K <- bGaussKernel(X, sigma)
+  if(noisy){cat('done.\n\n')}
   
-  if(noisy){cat("\n\nstep 2/5: getting Eigenvectors and values...\n"); timestamp()}
+  if(noisy){timestamp(); cat("Step 2/5: getting Eigenvectors and values...")}
   
-  Eigenobject <- bEigen(K, eigtrunc) 
+  Eigenobject <- bEigen(K, eigtrunc)
+  w[["K.eigenvalues"]] <- Eigenobject$values
+  if(noisy){cat('done.\n\n')}
   
   if (is.null(lambda)) {
-    if(noisy){cat("\n\nstep 3/5: getting regularization parameter Lambda which minimizes Leave-One-Out-Error Loss via Golden Search...\n"); timestamp()}
+    if(noisy){timestamp(); cat("Step 3/5: getting regularization parameter lambda...")}
     lambda <- bLambdaSearch(L = L, U = U, y = y, Eigenobject = Eigenobject, eigtrunc = eigtrunc, noisy = noisy)
   }else{
-    if(noisy){cat("\n\nSkipping step 3/5, proceeding with user-inputted lambda...")}
+    if(noisy){cat("\nSkipping step 3/5, proceeding with user-inputted lambda.\n")}
   }
   
-  if(noisy){cat("\n\nstep 4/5: getting coefficients & related estimates...\n"); timestamp()}
+  w[["Neffective"]] <- n - sum(w[["K.eigenvalues"]]/(w[["K.eigenvalues"]] + lambda))
+  if(noisy){cat("\nEffective Sample Size: ", w[["Neffective"]], '.', sep='')}
   
+  if(noisy){timestamp(); cat("Step 4/5: getting coefficients & related estimates...")}
+  
+  if(noisy){cat('\ncalculating coefficients...')}
   out <- bSolveForc(y = y, Eigenobject = Eigenobject, lambda = lambda, eigtrunc = eigtrunc)
+  if(noisy){cat('done.')}
   
   # bSolveForc obtains the vector of coefficients (weights) 
   # that assign importance to the similarity scores (found in K)
-  if(noisy){cat("\n\tstep 4.1: getting fitted values...\n"); timestamp()}
-  yfitted <- K %*% matrix(out$coeffs, ncol=1)
+  if(noisy){cat("\ncalculating fitted values...")}
+  yfitted <- K %*% to.big.matrix(out$coeffs)
+  if(noisy){cat('done.')}
   
   if (vcov.est == TRUE) {
-    sigmasq <- (1/n) * bCrossProd(y - yfitted)[1,1]
-    if(noisy){cat("\n\tin standardized units, sigmasq =", round(sigmasq, 5), "\n")}
+    sigmasq <- bCrossProd(y - yfitted)[]/n
+    if(noisy){cat("\nin standardized units, sigmasq = ", round(sigmasq, 5), ".\n", sep='')}
     if (is.null(eigtrunc)) {  # default
-      if(noisy){cat("\n\tstep 4.2: getting variance covariance of the coefficients\n\n"); timestamp()}
+      if(noisy){cat("\ncalculating variance-covariance of the coefficients...")}
       m <- bMultDiag(Eigenobject$vectors, 
                      sigmasq * (Eigenobject$values + lambda)^-2)
-      if(noisy){cat("... [continuing] ...\n\n"); timestamp()}
+      cat(".")
       vcovmatc <- bTCrossProd(m, Eigenobject$vectors)
       
     }else{
       
       lastkeeper = max(which(Eigenobject$values >= eigtrunc * Eigenobject$values[1]))
-      if(noisy){cat("\n\tstep 4.2: getting variance covariance of the coefficients\n"); timestamp()}
+      if(noisy){cat("\ncalculating variance-covariance of the coefficients...")}
       m <- bMultDiag(sub.big.matrix(Eigenobject$vectors, 
                                     firstCol=1, 
                                     lastCol=lastkeeper), 
                      sigmasq * (Eigenobject$values[1:lastkeeper] + lambda)^-2)
-      if(noisy){cat("\t... [continuing vcovmatc]...\n"); timestamp()}
+      cat(".")
       vcovmatc <- bTCrossProd(m, sub.big.matrix(Eigenobject$vectors, 
                                                 firstCol=1, 
                                                 lastCol=lastkeeper))
     }
-    if(noisy){"\tfound vcovmatc\n"}
     remove(Eigenobject)
     remove(m)
     gc()
-    if(noisy){"\n\tstep 4.3: estimating variance covariance of the fitted values\n"}
+    if(noisy){"\nestimating variance covariance of the fitted values..."}
     vcovmatyhat <- bCrossProd(K, vcovmatc %*% K)
     if(!is.null(model_subfolder_name) & return.big.squares){
       vcovmatyhat <- (y.init.sd^2) * vcovmatyhat
       cat("\nsaving vcovmatyhat to", getwd())
-      write.big.matrix(x = vcovmatyhat, filename = "vcovmatyhat.txt")
+      write.big.matrix(x = vcovmatyhat, filename = file.path(model_subfolder_name, "vcovmatyhat.txt"))
       remove(vcovmatyhat)
       cat("\nvcovmatyhat successfully saved to disk (and removed from memory for speed).\n")
     }
@@ -280,9 +296,11 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
     vcov.est.fitted <- NULL
   }
   
+  if(noisy){cat('done.\n\n')}
+  
   if (derivative == TRUE) {
     
-    if(noisy){cat("\n\nstep 5/5: estimating marginal effects...\n\n"); timestamp(); cat("\n\n")} 
+    if(noisy){timestamp(); cat("step 5/5: estimating marginal effects...\n")} 
     
     if(Ncores == 1){
       if(is.null(which.derivatives)){
@@ -292,7 +310,6 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
         deriv_out <- bDerivatives(Xsubset, sigma, K, out$coeffs, vcovmatc, X.init.sd)
       }
     }else{
-      cat("Intermediate output will be displayed from all cores at once and so look a little wonky :) \n\n")
       if(is.null(which.derivatives)){
         delta <- 1:p
       }else{
@@ -305,22 +322,25 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
       X.description = describe(X)
       K.description = describe(K)
       vcovmatc.description = describe(vcovmatc)
-      dput(X.description, file="X.desc")
-      dput(K.description, file="K.desc")
-      dput(vcovmatc.description, file="V.desc")
+      desc_subfolder <- if(is.null(model_subfolder_name)) tempdir() else model_subfolder_name
+      dput(X.description, file = file.path(desc_subfolder, "X.desc"))
+      dput(K.description, file = file.path(desc_subfolder, "K.desc"))
+      dput(vcovmatc.description, file = file.path(desc_subfolder, "V.desc"))
       
       if(!("cl" %in% ls())){
-        cl <- makeCluster(Ncores, outfile="")
+        if(noisy){cl <- makeCluster(Ncores, outfile='')} else{cl <- makeCluster(Ncores)}
+        
         clusterEvalQ(cl, suppressPackageStartupMessages(library(bigKRLS)))
       } 
       
-      tmp = parLapply(cl, delta, function(i, sigma, coefficients, X.init.sd){
+      
+      tmp = parLapply(cl, delta, function(i, sigma, coefficients, X.init.sd, desc_subfolder){
         
         # each core finds the big matrices like so...
         
-        X.description = dget("X.desc")
-        K.description = dget("K.desc")
-        V.description = dget("V.desc")
+        X.description = dget(file.path(desc_subfolder, "X.desc"))
+        K.description = dget(file.path(desc_subfolder, "K.desc"))
+        V.description = dget(file.path(desc_subfolder, "V.desc"))
         X = attach.big.matrix(X.description)
         K = attach.big.matrix(K.description)
         V = attach.big.matrix(V.description)
@@ -331,31 +351,27 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
         # can't return pointers
         list(output[[1]][], output[[2]])
         # could perhaps do describe and attach in reverse for N * N matrices
-      }, sigma, out$coeffs, X.init.sd)
+      }, sigma, out$coeffs, X.init.sd, desc_subfolder)
       stopCluster(cl) 
       remove(cl)
-      file.remove(dir(pattern = ".desc"))
+      
+      file.remove(dir(path = desc_subfolder, pattern = ".desc", full.names = TRUE))
       # description are pointers that will crash R outside of current R session so removing their footprint
       
-      derivatives <- matrix(nrow = n, ncol = length(delta))
+      derivs <- matrix(nrow = n, ncol = length(delta))
       varavgderiv <- c()
       for(i in 1:length(delta)){
-        derivatives[,i] <- tmp[[i]][[1]]
+        derivs[,i] <- tmp[[i]][[1]]
         varavgderiv[i] <- tmp[[i]][[2]]
       }
-      derivatives <- as.big.matrix(derivatives) 
       deriv_out <- list()
-      deriv_out[["derivatives"]] <- derivatives 
+      deriv_out[["derivatives"]] <- to.big.matrix(derivs) 
       deriv_out[["varavgderiv"]] <- varavgderiv
-      remove(tmp, derivatives, varavgderiv)
+      remove(tmp, derivs, varavgderiv)
     }
 
     
-    if(noisy){
-      cat("\n\n")
-      timestamp()
-      cat("\nfinished major calculations :)\n\nprepping bigKRLS output object...\n")
-    }
+    if(noisy){cat('done.\n\n'); timestamp(); cat('Prepping bigKRLS output object...done.\n')}
     
     derivmat <- deriv_out$derivatives
     varavgderivmat <- deriv_out$varavgderiv
@@ -378,27 +394,30 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
     
     attr(varavgderivmat, "scaled:scale") <- NULL
   }
-  if(noisy & derivative==F){
-    cat("\n\n")
-    timestamp()
-    cat("\nfinished major calculations :)\n\nprepping bigKRLS output object...\n")
+  
+  if(acf){
+    if(noisy){cat('Accumulating absolute pairwise correlations within X to correct p-values; see help(bigKRLS).')}
+    Neffective.acf <- bNeffective(X)
+    if(noisy){cat("done.\nEffective Sample Size as f(absolute correlation of X): ", Neffective.acf, '.', sep='')}
   }
   
-  # w will become bigKRLS object
+  # w is the output object
   
-  w <- list(coeffs = out$coeffs, 
-            y = y.init[], sigma = sigma, lambda = lambda, 
-            binaryindicator = x.is.binary,
-            which.derivatives = which.derivatives,
-            xlabs = xlabs)
+  w[["coeffs"]] <- out$coeffs
+  w[["y"]] <- y.init[]
+  w[["sigma"]] <- sigma
+  w[["lambda"]] <- lambda 
+  w[["binaryindicator"]] <- x.is.binary
+  w[["which.derivatives"]] <- which.derivatives
+  w[["xlabs"]] <- xlabs
   
   w[["yfitted"]] <- yfitted <- as.matrix(yfitted) * y.init.sd + y.init.mean
   w[["R2"]] <- 1 - (var(y.init - yfitted)/(y.init.sd^2))
   w[["Looe"]] <- out$Le * y.init.sd
+  w[["Neffective.acf"]] <- if(exists("Neffective.acf")) Neffective.acf else NULL
   
   # returning base R matrices when sensible...
   w[["K"]] <- if(return.big.squares) K else K[] 
-  w[["X"]] <- if(return.big.rectangles) X.init else X.init[]
 
   if (vcov.est) {
     
@@ -442,25 +461,26 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
     }
     colnames(w$derivatives) <- colnames(w$avgderivatives) <- if(is.null(which.derivatives)) xlabs else xlabs[which.derivatives]
 
-    if (noisy) {
-      cat("\n\nAverage Marginal Effects: \n")
-      print(round(w$avgderivatives, 3))
-      cat("\n Percentiles of Marginal Effects: \n")
-      print(round(apply(w$derivatives, 2, 
-                        quantile, probs = c(0.25, 0.5, 0.75)),3))
-    }
+    #if (noisy) {
+    #  cat("\n\nAverage Marginal Effects: \n")
+    #  print(round(w$avgderivatives, 3))
+    #  cat("\n Percentiles of Marginal Effects: \n")
+    #  print(round(apply(w$derivatives, 2, 
+    #                    quantile, probs = c(0.25, 0.5, 0.75)),3))
+    #}
   }
   
   w[["has.big.matrices"]] <- return.big.squares | return.big.rectangles
   if(!is.null(model_subfolder_name)){
     
-    cat("\nsaving ouput to", getwd(), "\n")
-    w[["path"]] <- getwd()
+    cat("\nsaving output to", model_subfolder_name, "\n")
+    w[["path"]] <- normalizePath(model_subfolder_name)
       
     for(i in which(unlist(lapply(w, is.big.matrix)))){
-      cat("\twriting", paste(c(names(w)[i], ".txt"), collapse = ""), "...\n")
+      output_file = file.path(model_subfolder_name, paste0(names(w)[i], ".txt"))
+      cat("\twriting", output_file, "...\n")
       write.big.matrix(x = w[[i]], col.names = !is.null(colnames(w[[i]])),
-                       filename = paste(c(names(w)[i], ".txt"), collapse = ""))
+                       filename = output_file)
     }
     
     Nbm <- sum(unlist(lapply(w, is.big.matrix))) + return.big.squares
@@ -472,17 +492,18 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
           "load.bigKRLS(\"", w$path, "\", newname=\"my_estimates\")\n", sep="")}
     if(Nbm > 0){
       bigKRLS_out <- w[-which(unlist(lapply(w, is.big.matrix)))]
+      class(bigKRLS_out) <- "bigKRLS"
     }else{
       bigKRLS_out <- w
     }
     stopifnot(sum(unlist(lapply(bigKRLS_out, is.big.matrix))) == 0)
-    save(bigKRLS_out, file="estimates.rdata")
-    cat("\nbase R elements of the output saved to estimates.rdata.\n")
-    cat("Total file size approximately", round(sum(file.info(list.files())$size)/1024^2), "megabytes.\n\n")
-    setwd(wd.original) 
+    save(bigKRLS_out, file=file.path(model_subfolder_name, "estimates.RData"))
+    cat("\nbase R elements of the output saved to estimates.RData.\n")
+    cat("Total file size approximately", round(sum(file.info(list.files(path = model_subfolder_name, full.names = TRUE))$size)/1024^2), "megabytes.\n\n")
+    model_subfolder_name
   }
   
-  cat("\nAll done. You may wish to use summary() for more detail, predict() for out-of-sample forecasts, or shiny.bigKRLS() to interact with results. Type vignette(\"bigKRLS_basics\") for sample syntax. Use save.bigKRLS() to store results and load.bigKRLS() to re-open them.\n\n")
+  if(instructions) cat("\nAll done. You may wish to use summary() for more detail, predict() for out-of-sample forecasts, or shiny.bigKRLS() to interact with results. For an alternative approach, see help(crossvalidate.bigKRLS). Type vignette(\"bigKRLS_basics\") for sample syntax. Use save.bigKRLS() to store results and load.bigKRLS() to re-open them.\n\n")
   class(w) <- "bigKRLS" 
   return(w)
   
@@ -492,6 +513,8 @@ bigKRLS <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.
 
 bLambdaSearch <- function (L = NULL, U = NULL, y = NULL, Eigenobject = NULL, tol = NULL, 
                            noisy = FALSE, eigtrunc = NULL){
+  
+  if(sum(is.na(Eigenobject$values)) > 0) stop("Missing eigenvalues prevent bigKRLS from obtaining the regularization parameter lambda.\n\tCheck for repeated observations (or other perfect linear combinations in X).")
   n <- nrow(y)
   if (is.null(tol)) {
     tol <- 10^-3 * n # tolerance parameter
@@ -507,10 +530,9 @@ bLambdaSearch <- function (L = NULL, U = NULL, y = NULL, Eigenobject = NULL, tol
     stopifnot(is.vector(U), length(U) == 1, is.numeric(U), U > 0)
   }
   if (is.null(L)) {
-    q <- which.min(abs((Eigenobject$values - max(Eigenobject$values)/1000)))
     
-    L = .Machine$double.eps
-    # smallest double such that 1 + x != 1. Normally 2.220446e-16.
+    q <- which.min(abs((Eigenobject$values - max(Eigenobject$values)/1000)))
+    L = .Machine$double.eps # smallest double such that 1 + x != 1. Normally 2.220446e-16.
     
     while (sum(Eigenobject$values/(Eigenobject$values + L)) > q) {
       L <- L + 0.05 
@@ -523,15 +545,15 @@ bLambdaSearch <- function (L = NULL, U = NULL, y = NULL, Eigenobject = NULL, tol
   
   # bLooLoss is big Leave One Out Error Loss
   
-  if(noisy) cat("\ngetting S1... \n")
+  if(noisy) cat("\ngetting S1...")
   S1 <- bLooLoss(lambda = X1, y = y, Eigenobject = Eigenobject, 
                  eigtrunc = eigtrunc)
-  if(noisy) cat("\ngetting S2... \n")
+  if(noisy){cat("done.\ngetting S2...")}
   S2 <- bLooLoss(lambda = X2, y = y, Eigenobject = Eigenobject, 
                  eigtrunc = eigtrunc)
   f3 <- function(x){format(round(x, digits=3), nsmall=3)}
   if (noisy) {
-    cat("\nstarting values of Golden Search:") 
+    cat("done.\n\nstarting values of Golden Search:") 
     cat("\nL:", f3(L), 
         "X1:", f3(X1), "X2:", f3(X2), 
         "U:", f3(U), "S1:", f3(S1), "S2:", f3(S2), 
@@ -563,7 +585,7 @@ bLambdaSearch <- function (L = NULL, U = NULL, y = NULL, Eigenobject = NULL, tol
   }
   out <- ifelse(S1 < S2, X1, X2)
   
-  if (noisy) {cat("\nLambda:", round(out, 5), "\n")}
+  if (noisy) {cat("\nlambda = ", round(out, 5), ".\n\n", sep='')}
   
   return(invisible(out))
 }
@@ -585,27 +607,27 @@ bLooLoss <- function (y = NULL, Eigenobject = NULL, lambda = NULL, eigtrunc = NU
 #' 
 #' @param object bigKRLS output
 #' @param newdata new data. ncol(X) == ncol(newdata) but nrow(X) need not be the same as nrow(newdata).
-#' @param se.fit get standard errors on predictions?
+#' @param se.pred get standard errors on predictions?
+#' @param ytest Provide testing data to have it returned with the object. Optional. To automatically generate out-of-sample test statistics, use crossvalidate.bigKRLS() instead.
 #' @param ... ignore
 #' @method predict bigKRLS
 #' @export
-predict.bigKRLS <- function (object, newdata, se.fit = FALSE, ...) 
+predict.bigKRLS <- function (object, newdata, se.pred = FALSE, ytest = NULL, ...) 
 {
   if (class(object) != "bigKRLS") {
     warning("Object not of class 'bigKRLS'")
     UseMethod("predict")
     return(invisible(NULL))
   }
-  if(se.fit == TRUE) {
+  if(se.pred == TRUE) {
     if (is.null(object$vcov.est.c)) {
       stop("recompute bigKRLS object with bigKRLS(,vcov.est=TRUE) to compute standard errors")
     }
   }
   
   # convert everything to a bigmatrix for internal usage
-  object$X <- to.big.matrix(object$X)
+  object$X <- to.big.matrix(object$X, deepcopy = TRUE)
   object$K <- to.big.matrix(object$K)
-  object$derivatives <- to.big.matrix(object$derivatives)
   object$vcov.est.c <- to.big.matrix(object$vcov.est.c)
   if(!is.null(object$vcov.est.fitted)){
     object$vcov.est.fitted <- to.big.matrix(object$vcov.est.fitted)  
@@ -616,15 +638,11 @@ predict.bigKRLS <- function (object, newdata, se.fit = FALSE, ...)
     cat("\nvcovmatyhat loaded successfully\n")
   }
   
+  # flag: return big matrices? (new kernel, etc...)
+  bigmatrix.in <- is.big.matrix(newdata) | object$has.big.matrices
   
-  # set bigmatrix flag for input data for later
-  if(!is.big.matrix(newdata)){
-    bigmatrix.in <- FALSE
-  } else{
-    bigmatrix.in <- TRUE
-  }
-  
-  newdata <- to.big.matrix(newdata)
+  newdata.init <- newdata
+  newdata <- to.big.matrix(newdata, deepcopy = TRUE)
   
   if (ncol(object$X) != ncol(newdata)) {
     stop("ncol(newdata) differs from ncol(X) from fitted bigKRLS object")
@@ -636,53 +654,58 @@ predict.bigKRLS <- function (object, newdata, se.fit = FALSE, ...)
     object$X[,i] <- (object$X[,i] - Xmeans[i])/Xsd[i]
   }  
   
-  newdata.init <- newdata
-  
   for(i in 1:ncol(newdata)){
     newdata[,i] <- (newdata[,i] - Xmeans[i])/Xsd[i]
   }
   
   newdataK <- bTempKernel(newdata, object$X, object$sigma)
   
-  # convert to regular matrix
-  yfitted <- (newdataK %*% as.matrix(object$coeffs, ncol=1))[]
+  ypred <- (newdataK %*% to.big.matrix(object$coeffs))[]
   
-  if (se.fit) {
-    vcov.est.c.raw <- object$vcov.est.c * (1/var(object$y))
-    vcov.est.fitted <- bTCrossProd(newdataK %*% vcov.est.c.raw, newdataK)
-    vcov.est.fit <- var(object$y) * vcov.est.fitted
-    se.fit <- matrix(sqrt(diag(vcov.est.fit[])), ncol = 1)
+  if (se.pred) {
+    
+    # vcov.est.c.raw <- object$vcov.est.c * (1/var(object$y))
+    # vcov.est.pred <- var(object$y) * bTCrossProd(newdataK %*% vcov.est.c.raw, newdataK)
+    # remove(vcov.est.c.raw)
+    vcov.est.pred <- var(object$y) * bTCrossProd(newdataK %*% (object$vcov.est.c * (1/var(object$y))), newdataK)
+    se.pred <- sqrt(bDiag(vcov.est.pred))
+    # se.pred <- matrix(sqrt(diag(vcov.est.pred[])), ncol = 1) 
+    
   }
   else {
-    vcov.est.fit <- se.fit <- NULL
+    vcov.est.pred <- se.pred <- NULL
   }
   
-  yfitted <- (yfitted * sd(object$y) + mean(object$y))
-  
-  
+  ypred <- ypred * sd(object$y) + mean(object$y)
   
   if(!bigmatrix.in){
-    newdata <- newdata[]
-    vcov.est.fit <- vcov.est.fit[]
+    vcov.est.pred <- vcov.est.pred[]
     newdataK <- newdataK[]
   }
   
-  return(list(fit = yfitted, se.fit = se.fit, vcov.est.fit = vcov.est.fit, 
-              newdata = newdata, newdataK = newdataK))
+  out <- list(predicted = ypred, se.pred = se.pred, vcov.est.pred = vcov.est.pred, 
+           newdata = newdata.init, newdataK = newdataK, 
+           has.big.matrices = bigmatrix.in, # TRUE if bigKRLS returned big OR user inputted to predict()
+           ytest = ytest)
+  
+  class(out) <- "bigKRLS_predicted"
+  return(out)
+  
 }
 
 #' summary.bigKRLS
 #' 
-#' Summary function for bigKRLS output. Call knitr::kable(summary(my_ouput)[[1]]) or knitr::kable(summary(my_ouput)[[2]]) to format with RMarkdown.
+#' Summary function for bigKRLS output. Call knitr::kable(summary(my_ouput)[["ttests"]]) or knitr::kable(summary(my_ouput)[["percentiles"]]) to format with RNotebook or RMarkdown.
 #' 
-#' @param object bigKRLS output. If you saved with save.bigKRLS(), only the .rdata file is needed for this function.
-#' @param probs For quantiles.
+#' @param object bigKRLS output. If you saved with save.bigKRLS(), only the .RData file is needed for this function.
+#' @param degrees "Neffective" (default) or "N". What value should be used as the sample size for the t-tests of the the AMEs (average marginal effects)? If 'Neffective' (default), degrees of freedom for t tests reflects degrees of freedom used to obtain regularization parameter, lambda. Neffective = N - sum(eigenvalues/(eigenvalues + lambda)); see e.g. Hastie et al. (2015, 61-68). 'N' is simply the observed sample size (note this is the default for library(KRLS)). Degrees of freedom for t-tests is either Neffective - P or N - P.
+#' @param probs For quantiles of the marginal effects of each x variable.
 #' @param digits Number of signficant digits.
 #' @param labs Optional vector of x labels.
 #' @param ... ignore
 #' @method summary bigKRLS
 #' @export
-summary.bigKRLS <- function (object, probs = c(0.05, 0.25, 0.5, 0.75, 0.95), digits=4, labs = NULL, ...) 
+summary.bigKRLS <- function (object, degrees = "Neffective", probs = c(0.05, 0.25, 0.5, 0.75, 0.95), digits = 4, labs = NULL, ...) 
 {
   if (class(object) != "bigKRLS") {
     warning("Object not of class 'bigKRLS'")
@@ -690,7 +713,26 @@ summary.bigKRLS <- function (object, probs = c(0.05, 0.25, 0.5, 0.75, 0.95), dig
     return(invisible(NULL))
   }
   
+  N <- n <- nrow(object$X)
+
+  stopifnot(degrees %in% c("acf", "Neffective", "N"))
+  
+  if(degrees == "Neffective") n <- object$Neffective
+  if(degrees == "acf"){
+    if(is.null(object$Neffective.acf)){
+      n <- bNeffective(to.big.matrix(scale(object$X[])))
+      cat("\n\n\n")
+    }else{
+      n <- object$Neffective.acf
+    } 
+  } 
+  
   cat("\n\nMODEL SUMMARY:\n\n")
+  cat("Lambda:", round(object$lambda, digits), "\n")
+  cat("N:", N, "\n")
+  if(n != N) cat("N Effective:", n, "\n")
+  
+  p <- ncol(object$X)
   cat("R2:", round(object$R2, digits), "\n")
   
   if (is.null(object$derivatives)) {
@@ -698,13 +740,11 @@ summary.bigKRLS <- function (object, probs = c(0.05, 0.25, 0.5, 0.75, 0.95), dig
     return(invisible(NULL))
   }
   
-  n <- nrow(object$X)
-  p <- ncol(object$X)
-  
   if(!is.null(labs)){
     stopifnot(length(labs) == p)
     colnames(object$X) <- labs
   }else{
+    if(is.big.matrix(object$X)) options(bigmemory.allow.dimnames=TRUE)
     colnames(object$X) <- object$xlabs
   }
     
@@ -715,6 +755,9 @@ summary.bigKRLS <- function (object, probs = c(0.05, 0.25, 0.5, 0.75, 0.95), dig
   
   est <- object$avgderivatives
   se <- sqrt(object$var.avgderivatives)
+  if(degrees != "Neffective"){
+    se <- se*nrow(object$X)/n # correcting variance estimate
+  }
   tval <- est/se
   pval <- 2 * pt(abs(tval), n - p, lower.tail = FALSE)
   AME <- t(rbind(est, se, tval, pval))
@@ -729,81 +772,185 @@ summary.bigKRLS <- function (object, probs = c(0.05, 0.25, 0.5, 0.75, 0.95), dig
   
   cat("\n\nPercentiles of Marginal Effects:\n\n")
   
-  qderiv <- t(apply(object$derivatives, 2, quantile, probs = probs))
+  deriv <- object$derivatives[]
+  qderiv <- t(apply(deriv, 2, quantile, probs = probs, na.rm = TRUE))
   rownames(qderiv) <- rownames(AME)
   print(round(qderiv, digits))
   
   if (sum(object$binaryindicator) > 0) {
     cat("\n(*) Reported average and percentiles of dy/dx is for discrete change of the dummy variable from min to max (usually 0 to 1)).\n\n")
   }
-  cat("\n(**) Pseudo-R^2 computed using only the Average Marginal Effects. If only a subset of marginal effects were estimated, Pseudo-R^2 calculated with that subset.\n\n")
+  cat("\n(**) Pseudo-R^2 computed using only the Average Marginal Effects.") 
+  if(length(object$which.derivatives) != ncol(object$X)) cat(" NOTE: If only a subset of marginal effects were estimated, Pseudo-R^2 calculated with that subset.")
+  cat("\n\n")
   cat("\nYou may also wish to use predict() for out-of-sample forecasts or shiny.bigKRLS() to interact with results. Type vignette(\"bigKRLS_basics\") for sample syntax. Use save.bigKRLS() to store results and load.bigKRLS() to re-open them.\n\n")
-  ans <- list(marginalfx_summary = AME, 
-              marginalfx_percentiles = qderiv)
+  ans <- list(ttests = AME, 
+              percentiles = qderiv)
   class(ans) <- "summary.bigKRLS"
   return(invisible(ans))
     
 }
 
+#' summary.bigKRLS_CV
+#' 
+#' Summary function for bigKRLS crossvalidated output.
+#' 
+#' @param object bigKRLS_CV output. If you saved with save.bigKRLS(), only the .RData file is needed for this function (for K folds CV, that means only the .RData in the top level folder).
+#' @param ... Additional parameters to be passed to summary() for the training model(s) contained within the CV object. For example, summary(cv, digits = 3).
+#' @method summary bigKRLS_CV
+#' @export
+summary.bigKRLS_CV <- function (object, ...) 
+{
+  if (class(object) != "bigKRLS_CV") {
+    warning("Object not of class 'bigKRLS_CV'")
+    UseMethod("summary")
+    return(invisible(NULL))
+  }
+  
+  arguments = list(...)
+  digits <- if("digits" %in% names(arguments)) digits else 3
+  
+  if(object$type == "crossvalidated"){
+    
+    cat("Overview of Model Performance\n\n")
+    
+    cat("N:", length(unlist(object$indices)), "\n")
+    cat("Seed:", object$seed, "\n\n")
+    
+    overview <- matrix(ncol = 2, nrow = 6)
+    colnames(overview) <- c("In Sample", "Out of Sample")
+    rownames(overview) <- c("Mean Squared Error (Full Model)", 
+                            "Mean Squared Error (Average Marginal Effects Only)",
+                            "Pseudo-R^2 (Full Model)",
+                            "Pseudo-R^2 (Average Marginal Effects Only)",
+                            "",
+                            "N")
+    
+    overview[1, 1] <- object$MSE_is
+    overview[1, 2] <- object$MSE_oos
+    
+    overview[2, 1] <- object$MSE_AME_is
+    overview[2, 2] <- object$MSE_AME_oos
+    
+    overview[3, 1] <- object$pseudoR2_is
+    overview[3, 2] <- object$pseudoR2_oos
+    
+    overview[4, 1] <- object$pseudoR2AME_is
+    overview[4, 2] <- object$pseudoR2AME_oos
+    
+    overview[6, 1] <- length(object$indices$train.set)
+    overview[6, 2] <- length(object$indices$test.set)
+    
+    print(round(overview, digits = digits), na.print = "")
+    
+    cat("\n\nSummary of Training Model:\n")
+    z = summary(object$trained, ...)
+    
+    ans <- list(overview = overview,
+                training.ttests = z$ttests, 
+                training.percentiles = z$percentiles)
+    class(ans) <- "summary.bigKRLS_CV"
+    
+  }else{
+    
+    stopifnot(object$type == "KfoldsCV")
+    # object[lapply(object, class) == "numeric"]
+    
+    cat("Overview of Model Performance\n\n")
+    
+    cat("N:", length(unlist(object$folds)), "\n")
+    cat("Kfolds:", object$Kfolds, "\n")
+    cat("Seed:", object$seed, "\n\n")
+    
+    overview <- matrix(unlist(object[lapply(object, class) == "numeric"][-c(1:2)]), 
+                  ncol=object$Kfolds, byrow = T)
+    colnames(overview) <- paste("Fold", 1:object$Kfolds)
+    
+    # somewhat cumbersome but the test stats will differ depending on whether 
+    # user computes with bigKRLS(... derivative = TRUE)
+    labs <- unlist(strsplit(names(unlist(object[lapply(object, class) == "numeric"][-c(1:2)])), "\\."))
+    labs <- unique(labs[-grep("fold", labs)])
+    labs <- gsub("_is", " (In Sample)", labs)
+    labs <- gsub("_oos", " (Out of Sample)", labs)
+    labs <- gsub("_", " ", labs)
+    labs <- gsub("R2AME", "R2 AME", labs)
+      
+    rownames(overview) <- labs
+    overview <- overview[match(sort(labs), labs), ]
+    
+    print(overview, digits = digits)
+    class(overview) <- "summary.bigKRLS_CV"
+    ans <- list(overview = overview)
+                
+    cat("\nMSE denotes Mean Squared Error. AME implies calculations done with Average Marginal Effects only.")
+    
+    for(k in 1:object$Kfolds){
+      cat("\n\nSummary of Training Model", k , ":\n", sep="")
+      z = summary(object[[paste0("fold_", k)]][["trained"]], ...)
+      ans[[paste0("training", k, ".ttests")]] <- z$ttests
+      ans[[paste0("training", k, ".percentiles")]] <- z$percentiles
+    }
+    
+  }
+  
+  return(invisible(ans))
+  
+}
+
 #' save.bigKRLS
 #' 
 #' save function, recommended when bigKRLS output contains big matrices (once N > 2,500 the kernel is stored this way).
-#' Base R data will be stored in a list in an .rdata file, big matrices will be stored in .txt files. 
+#' Base R data will be stored in a list in an .RData file, big matrices will be stored in .txt files. 
 #' Call load.bigKRLS() to retrieve. 
 #' 
-#' @param object bigKRLS output
+#' @param object bigKRLS output (regression, prediction, and crossvalidation). Use load.bigKRLS(model_subfolder_name), not load().
 #' @param model_subfolder_name A name of a folder where the file(s) will be written. 
 #' @param overwrite.existing Logical -- write over folders with the same name? Default == FALSE.
+#' @param noisy Logical -- display progress, additional instructions? Default == TRUE.
 #' @export
-save.bigKRLS <- function (object, model_subfolder_name, overwrite.existing=F) 
+save.bigKRLS <- function (object, model_subfolder_name, overwrite.existing=F, noisy = T) 
 {
-  if (class(object) != "bigKRLS") {
-    warning("Object not of class 'bigKRLS'")
+
+  bClasses <- c("bigKRLS", "bigKRLS_predicted", "bigKRLS_CV")
+  if (!(class(object) %in% bClasses)) {
+    warning("Object not a bigKRLS class.")
     UseMethod("save")
     return(invisible(NULL))
   }
   stopifnot(is.character(model_subfolder_name))
   
-  if(!overwrite.existing & (model_subfolder_name %in% dir())){
-    i <- 1
-    tmp.name <- paste(model_subfolder_name, i, sep="")
-    while(tmp.name %in% dir()){
-      tmp.name <- paste(model_subfolder_name, i, sep="")
-      i <- i + 1
-    }
-    if(model_subfolder_name %in% dir()){
-      warning(cat("A subfolder named",model_subfolder_name, "exists in your current working directory. Your output will be saved to", tmp.name, "instead. To turn off this safeguard, set save.bigKRLS(..., overwrite.existing=T) next time.\n\n"))
-    }
-    model_subfolder_name <- tmp.name
-  }
+  object <- make_path(object, model_subfolder_name, overwrite.existing)
   
-  dir.create(model_subfolder_name)
-  wd.original <- getwd()
-  setwd(paste(c(wd.original, .Platform$file.sep, model_subfolder_name), collapse=""))
-  cat("Saving model estimates to:\n\n", getwd(), "\n\n")
-  object[["path"]] <- getwd()
-  
-  for(i in which(unlist(lapply(object, is.big.matrix)))){
-    cat("\twriting", paste(c(names(object)[i], ".txt"), collapse = ""), "...\n")
-    write.big.matrix(x = object[[i]], col.names = !is.null(colnames(object[[i]])),
-                     filename = paste(c(names(object)[i], ".txt"), collapse = ""))
-  }
-  
-  Nbm <- sum(unlist(lapply(object, is.big.matrix)))
-  cat("\n", Nbm, " matrices saved as big matrices", 
-      ifelse(Nbm == 0, " (base R save() may be used safely in this case too).\n",
-             ", use load.bigKRLS() on the entire directory to reconstruct the outputted object in R.\n"), sep="")
-  if(Nbm > 0){
-    bigKRLS_out <- object[-which(unlist(lapply(object, is.big.matrix)))]
+  if(class(object) == "bigKRLS" | class(object) == "bigKRLS_predicted"){
+    bSave(object, noisy)
   }else{
-    bigKRLS_out <- object
+    
+    for(k in grep("fold_", names(object))){
+      
+      object[[k]][["trained"]] <- make_path(object[[k]][["trained"]], 
+                               file.path(object[["model_subfolder_name"]], names(object)[k], "trained"), 
+                               overwrite.existing = TRUE) # overwrite TRUE here in keeping with above choice
+      bSave(object[[k]][["trained"]], noisy)
+      
+      object[[k]][["tested"]] <- make_path(object[[k]][["tested"]], 
+                                            file.path(object[["model_subfolder_name"]], names(object)[k], "tested"), 
+                                            overwrite.existing = TRUE)
+      bSave(object[[k]][["tested"]], noisy)
+      
+    }
+    object[["dir"]] <- dir(object[["model_subfolder_name"]], recursive = T)
+    tmp <- class(object)
+    object <- object[-grep("fold_", names(object))]
+    class(object) <- tmp
+    save(object, file = file.path(object[["model_subfolder_name"]], "estimates.RData"))
+    if(noisy) cat("\nBase R elements, summary stats, and metadata of the entire cross-validated outputted object saved in:", 
+        file.path(object[["model_subfolder_name"]], "estimates.RData\n"))
   }
-  remove(object)
-  stopifnot(sum(unlist(lapply(bigKRLS_out, is.big.matrix))) == 0)
-  save(bigKRLS_out, file="estimates.rdata")
-  cat("Smaller, base R elements of the outputted object saved in estimates.rdata.\n")
-  cat("Total file size approximately", round(sum(file.info(list.files())$size)/1024^2), "megabytes.")
-  setwd(wd.original) 
+  
+  if(noisy) cat("\nTotal file size approximately", 
+      round(sum(file.info(list.files(path = object[["model_subfolder_name"]], full.names = TRUE, recursive = TRUE))$size)/1024^2), 
+      "megabytes.\n")
+  
 }
 
 #' load.bigKRLS
@@ -811,72 +958,67 @@ save.bigKRLS <- function (object, model_subfolder_name, overwrite.existing=F)
 #' Reconstructs bigKRLS output object as list.
 #' 
 #' @param path Path to folder where bigKRLS object was saved. 
-#' @param newname If NULL (default), bigKRLS object will appear as 'bigKRLS_out'
-#' @param pos position. Default == 1 (global environment).
+#' @param newname If NULL (default), bigKRLS regression and prediction output will appear as "bigKRLS_out", while crossvalidation results will appear as "object".
+#' @param pos position. Default == 1 (global environment). NULL means don't assign (return only).
+#' @param return_object Logical: return library(bigKRLS) object? Default == FALSE. 
+#' @param noisy Logical: display updates?
 #' 
 #' @export
-load.bigKRLS <- function(path, newname = NULL, pos = 1){
+load.bigKRLS <- function(path, newname = NULL, pos = 1, noisy = TRUE, return_object = FALSE){
   
   stopifnot(is.null(newname) | is.character(newname))
   
-  wd.original <- getwd()
-  setwd(path)
-  files <- dir()
-  if(!("estimates.rdata" %in% files)){
-    stop("estimates.rdata not found. Check the path to the output folder.\n\nNote: for any files saved manually, note that load.bigKRLS() anticipates the convention used by save.bigKRLS: estimates.rdata stores the base R objects in a list called bigKRLS_out, big matrices stored as text files named like they are in bigKRLS objects (object$K becomes K.txt, etc.).\n\n")
+  files <- dir(path = path)
+  if(!(tolower("estimates.RData") %in% tolower(files))){
+    stop("estimates.RData not found. Check the path to the output folder.\n\nNote: for any files saved manually, note that load.bigKRLS() anticipates the convention used by save.bigKRLS: estimates.RData stores the base R objects in a list called bigKRLS_out, big matrices stored as text files named like they are in bigKRLS objects (object$K becomes K.txt, etc.).\n\n")
   }
-  name = load("estimates.rdata")
   
-  if(bigKRLS_out$has.big.matrices){ 
-    cat("Loading big matrices from", getwd(), "\n\n")
-    if(!("K" %in% names(bigKRLS_out))){
-      if(!("K.txt" %in% files)){
-        cat("WARNING: Kernel not found in .rdata or in big matrix file K.txt\n\n")
-      }else{
-        cat("\tReading kernel from K.txt...\n")
-        bigKRLS_out$K <- read.big.matrix("K.txt", type = "double")
-      }
+  # bigKRLS version > 1.5 uses more standard convention .RData but loads .rdata too...
+  # name = load(file.path(path, "estimates.RData"))
+  name <- load(file.path(path, files[match(tolower("estimates.RData"), tolower(files))]))
+  # name will be 'bigKRLS_out' for predict and regression objects
+  # and 'object' for CV
+  
+  # equivalent to class(get(name)) == "bigKRLS" | class(get(name)) == "bigKRLS_predicted"
+  if(name == "bigKRLS_out"){
+    
+    bigKRLS_out <- bLoad(bigKRLS_out, path, noisy) # load big.matrix objects, if any
+    
+  }else{
+    
+    stopifnot(name == "object" & class(get(name)) == "bigKRLS_CV")
+    
+    est <- file.path(path, object$dir[grep("estimates.RData", object$dir)])
+
+    for(i in 1:length(est)){
+      
+      load(est[i])  # loads next estimates.RData, necessarily named bigKRLS_out
+      kind <- if(i %% 2 == 0) "trained" else "tested"
+      fold <- paste0("fold_", ceiling(i/2))
+      object[[fold]][[kind]] <- bLoad(bigKRLS_out, path, noisy)
+
     }
-    if(!("X" %in% names(bigKRLS_out))){
-      if(!("X.txt" %in% files)){
-        cat("WARNING: X matrix not found in .rdata or in big matrix file X.txt\n\n")
-      }else{
-        cat("\tReading X matrix from X.txt...\n")
-        bigKRLS_out$X <- read.big.matrix("X.txt", type = "double", header=T)
-      }
+  
+  } 
+  
+  
+  if(!is.null(pos)) {
+    
+    if(is.null(newname)){
+      newname <- name
     }
-    if(!("derivatives" %in% names(bigKRLS_out))){
-      if(!("derivatives.txt" %in% files)){
-        cat("WARNING: derivatives matrix not found in .rdata or in big matrix file derivatives.txt\n\n")
-      }else{
-        cat("\tReading derivatives matrix from derivatives.txt...\n")
-        bigKRLS_out$derivatives <- read.big.matrix("derivatives.txt", type = "double", header=T)
-      }
+    
+    if(class(get(name)) == "bigKRLS" | class(get(name)) == "bigKRLS_predicted"){
+      assign(newname, bigKRLS_out, envir = as.environment(pos))
+    }else{
+      assign(newname, object, envir = as.environment(pos))
     }
-    if(!("vcov.est.c" %in% names(bigKRLS_out))){
-      if(!("vcov.est.c.txt" %in% files)){
-        cat("WARNING: variance covariance matrix of the coefficients not found in .rdata or in big matrix file vcov.est.c.txt (necessary to compute standard errors of predictions)\n\n")
-      }else{
-        cat("\tReading variance covariance matrix of the coefficients from vcov.est.c.txt...\n")
-        bigKRLS_out$vcov.est.c <- read.big.matrix("vcov.est.c.txt", type = "double")
-      }
-    }
-    if(!("vcov.est.fitted" %in% names(bigKRLS_out))){
-      if(!("vcov.est.fitted.txt" %in% files)){
-        cat("WARNING: variance covariance matrix of the fitted values not found in .rdata or in big matrix file vcov.est.fitted.txt\n\n")
-      }else{
-        cat("\tReading variance covariance matrix of the fitted values from vcov.est.fitted.txt...\n\n")
-        bigKRLS_out$vcov.est.fitted <- read.big.matrix("vcov.est.fitted.txt", type = "double")
-      }
-    }
+    
+    if(noisy) cat("\nNew object created named", newname, ".\n\nRun vignette(\"bigKRLS_basics\") for examples for a", class(bigKRLS_out), "object.")
   }
-  if(is.null(newname)){
-    newname = name
-  }
-  class(bigKRLS_out) <- "bigKRLS"
-  assign(newname, bigKRLS_out, envir = as.environment(pos))
-  cat("New bigKRLS object created named", newname, "with", length(bigKRLS_out), "out of 21 possible elements of the bigKRLS class.\n\nOptions for this object include: summary(), predict(), and shiny.bigKRLS().\nRun vignette(\"bigKRLS_basics\") for detail")
-  setwd(wd.original)
+  
+  if(return_object) return(bigKRLS_out)
+  
 }
 
 
@@ -899,11 +1041,11 @@ shiny.bigKRLS <- function(out, export=F, main.label = "bigKRLS estimates", plot.
   if(!export){cat("export set to FALSE; set export to TRUE to prepare files for another machine.")}
   
   if(is.null(xlabs)) xlabs = out$xlabs
-
+  
   colnames(out$X) <- xlabs
   dydxlabs <- if(is.null(out$which.derivatives)) xlabs else xlabs[out$which.derivatives]
   colnames(out$derivatives) <- names(out$avgderivatives) <- names(out$var.avgderivatives) <- out$dydxlabs <- dydxlabs
-
+  
   palette(shiny.palette)
   
   bigKRLS_server <- shinyServer(function(input, output, session) {
@@ -911,7 +1053,7 @@ shiny.bigKRLS <- function(out, export=F, main.label = "bigKRLS estimates", plot.
     selectedData <- reactive({
       
       return(list(x = as.numeric(out$X[, input$xp]),
-             derivatives = as.numeric(out$derivatives[, input$dydxp])))
+                  derivatives = as.numeric(out$derivatives[, input$dydxp])))
     })
     
     output$graph <- renderPlot({
@@ -923,10 +1065,10 @@ shiny.bigKRLS <- function(out, export=F, main.label = "bigKRLS estimates", plot.
       P = P +  geom_hline(aes(yintercept=hline))
       P = P +  theme_minimal(base_size = font_size)
       P = P +  theme(panel.background=element_blank(),
-              panel.border=element_blank(),
-              panel.grid.major=element_blank(),
-              panel.grid.minor=element_blank(),
-              plot.background=element_blank()) 
+                     panel.border=element_blank(),
+                     panel.grid.major=element_blank(),
+                     panel.grid.minor=element_blank(),
+                     plot.background=element_blank()) 
       P = P + labs(title = plot.label)
       P
       
@@ -954,37 +1096,242 @@ shiny.bigKRLS <- function(out, export=F, main.label = "bigKRLS estimates", plot.
       output_baseR[[i]] <- as.matrix(output_baseR[[i]])
     }
     
-    save(output_baseR, file="shiny_out.rdata")
+    save(output_baseR, file="shiny_out.RData")
     
-    cat("A re-formatted version of your output has been saved with file name \"shiny_out.rdata\" in your current working directory:\n", getwd(),
+    cat("A re-formatted version of your output has been saved with file name \"shiny_out.RData\" in your current working directory:\n", getwd(),
         "\nFor a few technical reasons, the big N * N matrices have been removed and the smaller ones converted back to base R;\nthis should make your output small enough for the free version of Shiny's server.\nTo access the Shiny app later or on a different machine, simply execute this script with the following commands:\n",
-        "\nload(\"shiny_out.rdata\")\nNext, execute this code:\n\nshiny.bigKRLS(output_baseR)")
+        "\nload(\"shiny_out.RData\")\nNext, execute this code:\n\nshiny.bigKRLS(output_baseR)")
   }else{
     shinyApp(ui = bigKRLS_ui, server = bigKRLS_server)
   }
 }
 
 
-##################
-# Rcpp Functions #
-##################
-
-to.big.matrix <- function(obj, p=NULL){
-  if(is.null(p)){
-    p <- ifelse(!is.null(ncol(obj)), ncol(obj), 1)
+#' crossvalidate.bigKRLS
+#' 
+#' @param y A vector of numeric observations on the dependent variable; missing values not allowed. May be base R matrix or library(bigmemory) big.matrix.
+#' @param X A matrix of numeric observations of the independent variables; factors, missing values, and constant vectors not allowed. May be base R matrix or library(bigmemory) big.matrix.
+#' @param seed Seed to be used when partitioning data. For example, crossvalidate.bigKRLS(..., seed = 123). ?set.seed for details.
+#' @param Kfolds Number of folds for cross validation. Requires ptesting == NULL. Note KRLS assumes variation in each column; rare events or rarely observed factor levels may violate this assumption if Kfolds is too large given the data.
+#' @param ptesting Percentage of data to be used for testing (e.g., ptesting = 20 means 80\% training, 20\% testing). Requires Kfolds == NULL. Note KRLS assumes variation in each column; rare events or rarely observed factor levels may violate this assumptions if ptesting is too small given the data.
+#' @param estimates_subfolder If non-null, saves all model estimates in current working directory.
+#' @param ... Additional arguments to be passed to bigKRLS() or predict(). E.g., crossvalidate.bigKRLS(y, X, derivative = FALSE) will run faster but compute fewer test stats comparing in and out of sample performance (because the marginal effects will not be estimated).
+#'
+#' @export 
+crossvalidate.bigKRLS <- function(y, X, seed, Kfolds = NULL, ptesting = NULL, estimates_subfolder = NULL, ...){
+  
+  if(is.null(Kfolds) + is.null(ptesting) != 1) stop("Specify either Kfolds or ptesting but not both.")
+  
+  # suppressing warnings from bigmatrix
+  oldw <- getOption("warn")
+  options(warn = -1)
+  options(bigmemory.allow.dimnames=TRUE)
+  
+  stopifnot(is.big.matrix(X) | is.matrix(X))
+  
+  arguments <- list(...)
+  marginals <- TRUE
+  if("derivative" %in% names(arguments)){
+    marginals <- arguments[["derivative"]]
+  } # flag: compute test stats that require derivatives?
+  
+  Noisy <- nrow(X) > 2000 
+  if("noisy" %in% names(arguments)){
+    Noisy <- arguments[["noisy"]]
+  } # flag: make CV output in line with user wishes, bigKRLS() defaults
+  
+  set.seed(seed)
+  N <- nrow(X)
+  
+  if(!is.null(ptesting)){
+    
+    if(ptesting < 0 | ptesting > 100) stop("ptesting, the percentage of data to be used for validation, must be between 0 and 100.")
+    
+    Ntesting <- round(N * ptesting/100, 0)
+    Ntraining <- N - Ntesting
+    train.set <- sample(N, Ntraining, replace = F)
+    test.set <- matrix(1:N)[which(!(1:N %in% train.set))]
+    
+    Xtrain <- submatrix(X, train.set)
+    Xtest <- submatrix(X, test.set)
+    ytrain <- submatrix(y, train.set)    
+    ytest <- submatrix(y, test.set)
+    
+    trained <- bigKRLS(ytrain, Xtrain, instructions = FALSE, ...)
+    tested <- predict.bigKRLS(trained, Xtest)
+    tested[["ytest"]] <- ytest
+    
+    cv_out <- list(trained = trained, tested = tested, type = "crossvalidated")
+    cv_out[["seed"]] <- seed
+    cv_out[["indices"]] <- list(train.set = train.set, test.set = test.set)
+    cv_out[["pseudoR2_is"]] <- trained$R2
+    cv_out[["pseudoR2_oos"]] <- cor(tested$predicted, ytest[])^2
+    cv_out[["MSE_oos"]] <- mean((tested$predicted - ytest[])^2)
+    cv_out[["MSE_is"]] <- mean((trained$yfitted - trained$y[])^2)
+    
+    if(marginals){
+      
+      cv_out[["pseudoR2AME_is"]] <- trained$R2AME
+      
+      delta <- if(is.big.matrix(trained$X)) 
+        to.big.matrix(matrix(trained$avgderivatives), p = 1) else
+          t(trained$avgderivatives)
+      cv_out[["MSE_AME_is"]] <- mean((trained[["y"]] - (trained[["X"]] %*% delta)[])^2)
+      
+      delta <- if(is.big.matrix(Xtest)) 
+        to.big.matrix(matrix(trained$avgderivatives), p = 1) else
+          t(trained$avgderivatives)
+      cv_out[["pseudoR2AME_oos"]] <- cor(tested[["ytest"]][], (Xtest %*% delta)[])^2
+      cv_out[["MSE_AME_oos"]] <- mean((ytest - (Xtest %*% delta)[])^2)
+      
+    }
+    
+    cv_out[["ptesting"]] <- ptesting
+    class(cv_out) <- "bigKRLS_CV" 
+    # one bigKRLS object, one bigKRLS.predict object, type either "crossvalidated" or "kfolds"
+    if("big.matrix" %in% lapply(trained, class) & is.null("estimates_subfolder")) 
+      cat("NOTE: Outputted object contains big.matrix objects. To avoid crashing R, use save.bigKRLS(), not base R save() to store results.")
+    if(Noisy) cat("You may wish to use summary() on the outputted object.")
+    return(cv_out)
+    
   }
   
-  if(!is.big.matrix(obj)){
-    obj <- as.big.matrix(matrix(obj, ncol=p))
+  if(!is.null(Kfolds)){
+    
+    stopifnot(is.numeric(Kfolds) & Kfolds > 0 & Kfolds %% 1 == 0)
+    
+    # randomly places observations into (approximately) equal folds
+    folds <- as.integer(cut(sample(N), breaks = Kfolds))
+    
+    for(k in 1:Kfolds){
+      
+      if(Noisy) cat("\n\n Performing pre-check of data for fold ", k, ".\n\n", sep="")
+      
+      Xtrain <- submatrix(X, folds != k)
+      ytrain <- submatrix(y, folds != k)
+      
+      check_data(ytrain, Xtrain, instructions = FALSE)
+      
+    }
+    
+    out <- list(type = "KfoldsCV") # object to be returned
+    class(out) <- "bigKRLS_CV"
+    # out contains measures of fit, meta data, and (nested within each nested fold) bigKRLS, predict objects
+    out[["Kfolds"]] <- Kfolds
+    out[["seed"]] <- seed
+    out[["folds"]] <- folds
+    warn.big = FALSE # dummy flag variable: warn re: big.matrix objects?
+    
+    # K measures of fit for each fold...
+    out[["R2_is"]] <- c() # in sample R2, based on y = kernel(train, ) %*% coefs.hat
+    out[["R2_oos"]] <- c() # out of sample R2, based on kernel(X[cbind(test, train])
+    out[["MSE_is"]] <- c() # in sample mean squared error
+    out[["MSE_oos"]] <- c() # out of sample mean squared error
+    
+    if(marginals){
+      
+      out[["R2AME_is"]] <- c() # in sample R2 average marginal effects, yhat = X[train, ] %*% colMeans(delta)
+      out[["R2AME_oos"]] <- c() # oos R2, yhat = X[test, ] %*% colMeans(delta)
+      out[["MSE_AME_is"]] <- c() # is for MSE for AMEs
+      out[["MSE_AME_oos"]] <- c() # oos for MSE for AMEs
+      
+    }
+    
+    
+    for(k in 1:Kfolds){
+      
+      if(Noisy) cat("\n\n Starting fold ", k, ".\n\n", sep="")
+      
+      Xtrain <- submatrix(X, folds != k)
+      Xtest <- submatrix(X, folds == k)
+      ytrain <- submatrix(y, folds != k)    
+      ytest <- submatrix(y, folds == k)
+      
+      trained <- bigKRLS(ytrain, Xtrain, instructions = FALSE, ...)
+      if(Noisy) summary(trained)
+      tested <- predict.bigKRLS(trained, Xtest)
+      tested[["ytest"]] <- ytest
+      
+      cv_out <- list(trained = trained, tested = tested)
+      class(cv_out) <- "bigKRLS_CV"
+      # cv_out contains one bigKRLS object (trained), one bigKRLS.predict object (tested)
+      
+      out[[paste0("fold_", k)]] <- cv_out
+      
+      ytest <- as.matrix(ytest) # in case of big.matrix objects...
+      ytrain <- as.matrix(ytrain) # (loading vectors into R generally harmless)
+      
+      # measures of fit...
+      out[["R2_is"]][k] <- trained$R2
+      out[["R2_oos"]][k] <- cv_out[["tested"]][["pseudoR2"]] <- cor(ytest, as.matrix(tested$predicted))^2
+      out[["MSE_is"]][k] <- cv_out[["trained"]][["MSE"]] <- mean((ytrain - as.matrix(trained$yfitted))^2)
+      out[["MSE_oos"]][k] <- cv_out[["tested"]][["MSE"]] <- mean((ytest - tested$predicted)^2)
+      
+      if(marginals){
+        
+        out[["R2AME_is"]][k] <- trained$R2AME
+        
+        delta <- if(is.big.matrix(trained$X)) 
+          to.big.matrix(matrix(trained$avgderivatives), p = 1) else
+            t(trained$avgderivatives)
+        out[["MSE_AME_is"]][k] <- cv_out[["trained"]][["MSE_AME"]] <- mean((trained[["y"]] - (trained[["X"]] %*% delta)[])^2)
+        
+        delta <- if(is.big.matrix(Xtest)) 
+          to.big.matrix(matrix(trained$avgderivatives), p = 1) else
+            t(trained$avgderivatives)
+        out[["R2AME_oos"]][k] <- cor(ytest, (Xtest %*% delta)[])^2
+        out[["MSE_AME_oos"]][k] <- cv_out[["tested"]][["MSE_AME"]] <- mean((ytest - (Xtest %*% delta)[])^2)
+        
+      }
+      
+      
+      warn.big <- warn.big | ("big.matrix" %in% lapply(trained, class) & is.null("estimates_subfolder")) 
+      cat("\n")  
+    }
+    
+    names(out[["R2_is"]]) <- names(out[["R2_oos"]]) <- names(out[["MSE_is"]]) <- 
+      names(out[["MSE_oos"]]) <- paste0("fold", 1:Kfolds)
+    
+    if(marginals){
+      names(out[["R2AME_is"]]) <- names(out[["R2AME_oos"]]) <- 
+        names(out[["MSE_AME_is"]]) <- names(out[["MSE_AME_oos"]]) <- paste0("fold", 1:Kfolds)
+    }
+    
+    if(warn.big) cat("NOTE: Outputted object contains big.matrix objects. To avoid crashing R, use save.bigKRLS(), not base R save() to store results.")
+    
+    if(!is.null(estimates_subfolder)) save.bigKRLS(out)
+    
+    return(out)
+    
   }
-  return(obj)
+  
+}
+
+
+#######################################
+# Rcpp and bigmemory Helper Functions #
+#######################################
+
+to.big.matrix <- function(object, p = NULL, deepcopy = FALSE){
+  
+  if(is.null(p)){
+    p <- ifelse(!is.null(ncol(object)), ncol(object), 1)
+  }
+  
+  if(!is.big.matrix(object)){
+    object <- as.big.matrix(matrix(as.numeric(object), ncol=p))
+    # as.numeric ensures integers are coerced to doubles (ints can create type-cast trouble)
+    # for slippage scenarios, see
+    # https://www.rdocumentation.org/packages/base/versions/3.4.0/topics/numeric
+  }
+  if(deepcopy) return(deepcopy(object)) else return(object)
 }
 
 
 bMultDiag <- function (X, v, check_platform = F) {
   
   if(check_platform) check_platform()
-  #rcpp_multdiag.cpp
+  # multdiag.cpp
   out <- big.matrix(nrow=nrow(X),
                     ncol=ncol(X),
                     init=0,
@@ -998,7 +1345,7 @@ bMultDiag <- function (X, v, check_platform = F) {
 bEigen <- function(X, eigtrunc, check_platform = F){
 
   if(check_platform) check_platform()
-  #rcpp_eigen.cpp
+  # eigen.cpp
   vals <- big.matrix(nrow = 1,
                      ncol = ncol(X),
                      init = 0,
@@ -1018,24 +1365,31 @@ bEigen <- function(X, eigtrunc, check_platform = F){
 bGaussKernel <- function(X, sigma, check_platform = F){
  
   if(check_platform) check_platform()
-  #rcpp_gauss_kernel.cpp
+  # gauss_kernel.cpp
   out <- big.matrix(nrow=nrow(X), ncol=nrow(X), init=0)
   
   BigGaussKernel(X@address, out@address, sigma)
   return(out)
 }
 
+bNeffective <- function(X, check_platform = F){
+  
+  if(check_platform) check_platform()
+  # Neffective.cpp
+  return(BigNeffective(X@address))
+}
+
 bTempKernel <- function(X_new, X_old, sigma, check_platform = F){
   
   if(check_platform) check_platform()
-  #rcpp_temp_kernel.cpp
+  # temp_kernel.cpp
   out <- big.matrix(nrow=nrow(X_new), ncol=nrow(X_old), init=0)
   
   BigTempKernel(X_new@address, X_old@address, out@address, sigma)
   return(out)
 }
 
-bCrossProd <- function(X,Y=NULL, check_platform = F){
+bCrossProd <- function(X, Y=NULL, check_platform = F){
   
   if(check_platform) check_platform()
   if(is.null(Y)){
@@ -1075,3 +1429,152 @@ bDerivatives <- function(X,sigma,K,coeffs,vcovmatc, X.sd, check_platform = F){
   return(list('derivatives'= derivatives, 'varavgderiv' = varavgderiv[]))
 }
 
+make_path <- function(object, model_subfolder_name, overwrite.existing){
+  
+  # thanks to Peter Foley for helpful suggestions re: file and folder management!
+  # see pulls 11-13 starting with https://github.com/rdrr1990/bigKRLS/pull/11
+  
+  if(!overwrite.existing && dir.exists(model_subfolder_name)){
+    i <- 1
+    tmp.name <- paste(model_subfolder_name, i, sep="")
+    while(tmp.name %in% dir()){
+      tmp.name <- paste(model_subfolder_name, i, sep="")
+      i <- i + 1
+    }
+    if(model_subfolder_name %in% dir()){
+      warning(cat("A subfolder named", model_subfolder_name, "exists in your current working directory. Your output will be saved to", tmp.name, "instead. To turn off this safeguard, set save.bigKRLS(..., overwrite.existing=T) next time.\n\n"))
+    }
+    model_subfolder_name <- tmp.name
+  }
+  
+  dir.create(model_subfolder_name, recursive = TRUE, showWarnings = FALSE)
+  if(dir.exists(model_subfolder_name)) 
+    cat("Saving model estimates to:\n\n", model_subfolder_name, "\n\n") else 
+      stop("Unable to create directory.")
+  object[["path"]] <- normalizePath(model_subfolder_name)
+  object[["model_subfolder_name"]] <- model_subfolder_name
+  return(object)
+  
+}
+
+bSave <- function(object, noisy){
+  
+  is.big.mat <- unlist(lapply(object, is.big.matrix))
+  
+  for(i in which(is.big.mat)){
+    output_path <- file.path(object[["model_subfolder_name"]], paste0(names(object)[i], ".txt"))
+    if(noisy) cat("\twriting", output_path, "...\n")
+    write.big.matrix(x = object[[i]], col.names = !is.null(colnames(object[[i]])),
+                     filename = output_path)
+  }
+  
+  Nbm <- sum(is.big.mat)
+  if(noisy) cat("\n", Nbm, " matrices saved as big matrices", 
+      ifelse(Nbm == 0, " (base R save() may be used safely in this case too).\n",
+             ", use load.bigKRLS() on the entire directory to reconstruct the outputted object in R.\n"), sep="")
+  if(Nbm > 0){
+    bigKRLS_out <- object[-which(is.big.mat)]
+    class(bigKRLS_out) <- class(object) 
+  }else{
+    bigKRLS_out <- object
+  }
+  remove(object)
+  stopifnot(sum(unlist(lapply(bigKRLS_out, is.big.matrix))) == 0)
+  save(bigKRLS_out, file = file.path(bigKRLS_out[["model_subfolder_name"]], "estimates.RData"))
+  if(noisy) cat("Smaller, base R elements of the outputted object saved:", file.path(bigKRLS_out[["model_subfolder_name"]], "estimates.RData"), "\n")
+  
+}
+
+bLoad <- function(object, path, noisy){
+  
+  if(class(object) == "bigKRLS"){
+    matrices <- c("K", "X", "derivatives", "vcov.est.c", "vcov.est.fitted")
+  }else{
+    if(class(object) == "bigKRLS_predicted"){
+      matrices <- c("predicted", "se.pred", "vcov.est.pred", "newdata", "newdataK", "ytest")
+    }else{
+      stop("bLoad may only be used on bigKRLS objects or bigKRLS_predicted objects.")
+    }
+  }
+  
+  `%out%` <- function(x, table) match(x, table, nomatch = 0L) == 0L
+  
+  for(i in 1:length(matrices)){
+    
+    filename <- paste0(matrices[i], ".txt")
+    
+    if(filename %out% dir(path = path) & matrices[i] %out% names(object)){
+      
+      if(noisy) cat("NOTE:", matrices[i],  
+                    "not found in .RData or in big matrix file,", 
+                    filename,".\n\n")
+    }else{
+      if(filename %in% dir(path = path)){
+        if(noisy) cat("\tReading from", filename, "\n")
+        object[[matrices[i]]] <- read.big.matrix(file.path(path, filename), 
+                                                 type = "double")
+        stopifnot(is.big.matrix(object[[matrices[i]]]))
+      }
+        
+    }
+  }
+  
+  return(object)
+}
+
+# check_data() performs all the checks that bigKRLS() performs...
+# it is intended for K folds crossvalidation. 
+# categorical variables can be fussy when randomly partitioning...
+
+check_data <- function (y = NULL, X = NULL, sigma = NULL, derivative = TRUE, which.derivatives = NULL,
+                                   vcov.est = TRUE, 
+                                   lambda = NULL, L = NULL, U = NULL, tol = NULL,
+                                   model_subfolder_name=NULL, overwrite.existing=F, Ncores=NULL, acf = FALSE, noisy = NULL, instructions = T)
+{
+   
+  # suppressing warnings from bigmatrix
+  oldw <- getOption("warn")
+  options(warn = -1)
+#  options(bigmemory.allow.dimnames=TRUE)
+  
+  stopifnot(is.matrix(X) | is.big.matrix(X))
+  
+  X <- to.big.matrix(X)
+  X.init.sd <- colsd(X)
+  y <- to.big.matrix(y, p = 1)
+  
+  miss.ind <- colna(X)
+  if (sum(miss.ind) > 0) { 
+    stop(paste("the following columns in X contain missing data, which must be removed:", 
+               paste((1:length(miss.ind))[miss.ind > 0], collapse = ', '), collapse=''))
+  }
+  n <- nrow(X)
+  p <- ncol(X)
+  
+  if (min(X.init.sd) == 0) {
+    stop(paste("The following columns in X are constant and must be removed:",
+               which(X.init.sd == 0)))
+  }
+  
+  if (n != nrow(y)) { stop("nrow(X) not equal to number of elements in y.")}
+  if (colna(y) > 0) { stop("y contains missing data.") }
+  if (colsd(y) == 0) { stop("y is a constant.") }
+  
+  #return(is.big.matrix(X) | nrow(X) > 2500)
+  
+}
+
+bDiag <- function(A){
+# returns diagonal of big.matrix as column vector (base R matrix)  
+
+  d <- matrix(nrow = nrow(A), ncol = 1)
+  for(i in 1:nrow(A)){
+    d[i] <- deepcopy(A, cols = i, rows = i)[]
+  }
+  
+  return(d)
+}
+
+submatrix <- function(X, rows){
+  if(is.big.matrix(X)) deepcopy(X, rows = rows) else X[rows, ]
+}
