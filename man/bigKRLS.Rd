@@ -11,8 +11,8 @@
 bigKRLS(y = NULL, X = NULL, sigma = NULL, derivative = TRUE,
   which.derivatives = NULL, vcov.est = TRUE, lambda = NULL, L = NULL,
   U = NULL, tol = NULL, model_subfolder_name = NULL,
-  overwrite.existing = F, Ncores = NULL, acf = FALSE, noisy = NULL,
-  instructions = T)
+  overwrite.existing = FALSE, Ncores = NULL, acf = FALSE, noisy = NULL,
+  instructions = TRUE)
 }
 \arguments{
 \item{y}{A vector of numeric observations on the dependent variable; missing values not allowed. May be base R matrix or library(bigmemory) big.matrix.}
@@ -71,7 +71,11 @@ Major Updates
 
 5. Interactive data visualization. We've designed an R Shiny app that allows users bigKRLS users to easily share results with collaborators or more general audiences. Simply call shiny.bigKRLS() on the outputted regression object.
 
-Requirements. bigKRLS is under active development, and currently requires R version 3.3.0 or later. Windows users should use RTools 3.3 or later. RStudio users must have a current version as well.
+6. Honest p values. bigKRLS now computes p values that reflect both the regularization process and the number of predictors. For details and other options, see help(summary.bigKRLS).
+
+7. Cross-validation, including K folds crossvalidation. crossvalidate.bigKRLS performs CV, stores a number of in and out of sample statistics, as well as metadata documenting how the were split, the bigmemory file structure (if appropriate), and so on. See vignette("bigKRLS_basics") or help("crossvalidate.bigKRLS") for syntax.
+
+Requirements. bigKRLS is under active development. bigKRLS, as well its dependencies, require current versions of R and its compilers (and RStudio if used). For details, see \url{https://github.com/rdrr1990/code/blob/master/bigKRLS_installation.md}.
 
 For details on syntax, load the library and then open our vignette vignette("bigKRLS_basics"). Because of the quadratic memory requirement, users working on a typical laptop (8-16 gigabytes of RAM) may wish to start at N = 2,500 or 5,000, particularly if the number of *x* variables is large. When you have a sense of how bigKRLS runs on your system, you may wish to only estimate a subset of the marginal effects at N = 10-15,000 by setting bigKRLS(... which.derivatives = c(1, 3, 5)) for the marginal effects of the first, third, and fifth x variable.
 
@@ -85,13 +89,25 @@ License
 Code released under GPL (>= 2).
 }
 \examples{
-N <- 500  # proceed with caution above N = 5,000 for system with 8 gigs made avaiable to R
-P <- 4
-X <- matrix(rnorm(N*P), ncol=P)
-X <- cbind(X, sample(0:1, replace = TRUE, size = nrow(X)))
-b <- runif(ncol(X)) 
-y <- X \%*\% b + rnorm(nrow(X))
-out <- bigKRLS(y, X, Ncores=1)
+# y <- as.matrix(ChickWeight$weight) # weight of chickens toy dataset
+# X <- matrix(cbind(ChickWeight$Time, ChickWeight$Diet == 1), ncol = 2)
+# out <- bigKRLS(y, X, Ncores = 1)
+# out$R2                             # 0.7635361
+# summary(out, labs = c("Time", "Diet")) 
+# ?summary.bigKRLS for more formatting options
+# save.bigKRLS(out, "exciting_results") 
+# don't use save() unless out$has.big.matrices == FALSE
+# out2 <- bigKRLS(y, X, which.derivatives = 2) 
+# if x2 is variable of interest 
+# Note: the second regression uses N - 2 cores for parallel procecessing (default).
+}
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/rdrr1990/bigKRLS}
+  \item Report bugs at \url{https://github.com/rdrr1990/bigKRLS/issues}
+}
+
 }
 \author{
 \strong{Maintainer}: Pete Mohanty \email{pete.mohanty@gmail.com}

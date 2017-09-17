@@ -18,6 +18,22 @@
 
 \item{...}{ignore}
 }
+\value{
+Returns bigKRLS_predicted list object.
+}
 \description{
-predict.bigKRLS
+Predict function for bigKRLS object. crossvalidate.bigKRLS() provides additional functionality.
+}
+\examples{
+ 
+# y <- as.matrix(ChickWeight$weight)
+# X <- matrix(cbind(ChickWeight$Time, ChickWeight$Diet == 1), ncol = 2)
+# N <- length(y)
+# set.seed(123)
+# train <- sample(N, 100, replace = FALSE)
+# outOfSample <- c(1:N)[-train]
+# test <- sample(outOfSample, 10, replace = FALSE)
+# fit <- bigKRLS(y[train], X[train,], instructions = FALSE) 
+# p <- predict(fit, X[test,])
+# range(p$predicted) # 44.04614 257.76520
 }

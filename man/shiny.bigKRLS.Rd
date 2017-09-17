@@ -4,7 +4,7 @@
 \alias{shiny.bigKRLS}
 \title{shiny.bigKRLS}
 \usage{
-shiny.bigKRLS(out, export = F, main.label = "bigKRLS estimates",
+shiny.bigKRLS(out, export = FALSE, main.label = "bigKRLS estimates",
   plot.label = NULL, xlabs = NULL, font_size = 20, hline = 0,
   shiny.palette = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
   "#FFFF33", "#A65628", "#F781BF", "#999999"))
@@ -28,4 +28,13 @@ shiny.bigKRLS(out, export = F, main.label = "bigKRLS estimates",
 }
 \description{
 shiny.bigKRLS
+}
+\examples{
+N <- 500  # proceed with caution above N = 5,000 for system with 8 gigs made avaiable to R
+P <- 4
+X <- matrix(rnorm(N*P), ncol=P)
+b <- 1:P 
+y <- sin(X[,1]) + X \%*\% b + rnorm(N)
+out <- bigKRLS(y, X, Ncores=1)
+# shiny.bigKRLS(out, "exciting_results", "The Results", c("Frequency", "xA", "xB", "xC")) # not run
 }
