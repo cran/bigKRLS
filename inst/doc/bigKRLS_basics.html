@@ -91,7 +91,7 @@ code > span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Inf
 <p>Suppose we want to regress fuel efficiency on the other observables.</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">reg.out &lt;-<span class="st"> </span><span class="kw">bigKRLS</span>(<span class="dt">y =</span> <span class="kw">as.matrix</span>(mtcars<span class="op">$</span>mpg), 
                    <span class="dt">X =</span> <span class="kw">as.matrix</span>(mtcars[,<span class="op">-</span><span class="dv">1</span>]), <span class="dt">Ncores =</span> <span class="dv">1</span>)</code></pre></div>
-<pre><code>## ...........................
+<pre><code>## ..........................
 ## All done. You may wish to use summary() for more detail, predict() for out-of-sample forecasts, or shiny.bigKRLS() to interact with results. For an alternative approach, see help(crossvalidate.bigKRLS). Type vignette(&quot;bigKRLS_basics&quot;) for sample syntax. Use save.bigKRLS() to store results and load.bigKRLS() to re-open them.</code></pre>
 <p>Unlike classical regression, the algorithm does not directly obtain an estimate of the slope, the “average” marginal effect (the slope). By contrast, KRLS first estimates the the marginal effect d<em>y</em>/d<em>x</em><sub>p</sub> at each observation (given the pairwise distances with each of the other observations). For example, we may want to know the effect the number of gears has on a particular vehicle’s fuel efficiency.</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>(reg.out)</code></pre></div>
@@ -99,7 +99,7 @@ code > span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Inf
 ## 
 ## MODEL SUMMARY:
 ## 
-## Lambda: 0.1306 
+## lambda: 0.1306 
 ## N: 32 
 ## N Effective: 15.17858 
 ## R2: 0.9405 
@@ -166,27 +166,27 @@ code > span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Inf
 <p>Suppose you want to cross-validate your data…</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">CV.out &lt;-<span class="st"> </span><span class="kw">crossvalidate.bigKRLS</span>(<span class="dt">y =</span> <span class="kw">as.matrix</span>(mtcars<span class="op">$</span>mpg), <span class="dt">seed =</span> <span class="dv">123</span>, <span class="dt">Kfolds =</span> <span class="dv">4</span>,
                    <span class="dt">X =</span> <span class="kw">as.matrix</span>(mtcars[,<span class="op">-</span><span class="dv">1</span>]), <span class="dt">Ncores =</span> <span class="dv">1</span>)</code></pre></div>
-<pre><code>## .................................
+<pre><code>## .........................
+## ...........................
 ## .........................
-## ........................
 ## ........................</code></pre>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">cor</span>(CV.out<span class="op">$</span>fold_<span class="dv">3</span><span class="op">$</span>tested<span class="op">$</span>predicted, CV.out<span class="op">$</span>fold_<span class="dv">3</span><span class="op">$</span>tested<span class="op">$</span>ytest)</code></pre></div>
-<pre><code>## [1] 0.8587532</code></pre>
+<pre><code>## [1] 0.9662644</code></pre>
 <p>The predictions and the holdout data correlate at 0.86. To look at particular models:</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>(CV.out<span class="op">$</span>fold_<span class="dv">1</span><span class="op">$</span>trained) <span class="co"># not run</span></code></pre></div>
 <p><code>CV.out</code> contains several test statistics including:</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">CV.out<span class="op">$</span>MSE_is</code></pre></div>
-<pre><code>##     fold1     fold2     fold3     fold4 
-## 0.5058429 3.9217101 3.4742233 3.3002986</code></pre>
+<pre><code>##    fold1    fold2    fold3    fold4 
+## 3.408028 1.757684 1.191496 2.173197</code></pre>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">CV.out<span class="op">$</span>MSE_oos</code></pre></div>
 <pre><code>##     fold1     fold2     fold3     fold4 
-## 18.339746 11.378816  6.693397  6.886830</code></pre>
+##  3.425657  4.247855 21.958875 15.206500</code></pre>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">CV.out<span class="op">$</span>R2_oos</code></pre></div>
 <pre><code>##     fold1     fold2     fold3     fold4 
-## 0.6645822 0.7196237 0.7374570 0.9292571</code></pre>
+## 0.9062257 0.7065661 0.9336668 0.5525216</code></pre>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">CV.out<span class="op">$</span>R2AME_oos</code></pre></div>
 <pre><code>##     fold1     fold2     fold3     fold4 
-## 0.8291920 0.9116744 0.7121555 0.9038083</code></pre>
+## 0.9288903 0.6453527 0.9067781 0.7085692</code></pre>
 <p>The first two test stats are the mean squared error, in and out of sample (respectively). The second two show the performance of the full model (the N coefficients) vs. the portion that is linear and additive in X. To do a simple train and test, leave <code>Kfolds</code> blank and set <code>ptesting</code> instead.</p>
 </div>
 <div id="shiny" class="section level3">
@@ -220,7 +220,7 @@ forecast &lt;-<span class="st"> </span><span class="kw">predict</span>(reg.out, 
 Z</code></pre></div>
 <pre><code>## An object of class &quot;big.matrix&quot;
 ## Slot &quot;address&quot;:
-## &lt;pointer: 0x7f8a54eb8ca0&gt;</code></pre>
+## &lt;pointer: 0x7fab27843500&gt;</code></pre>
 <p>You do not necessarily need to work with the big square matrices in the output. But if you do and your comfortable they fit in memory, just use the square brackets:</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">Z[]</code></pre></div>
 <pre><code>##      [,1] [,2] [,3] [,4] [,5]

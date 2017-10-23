@@ -1,13 +1,13 @@
-3e8f8268b5587f499f16bd1a77749221 *DESCRIPTION
-04c6b2999f8eb36be1af8351bd41b260 *NAMESPACE
+03db5ccdff02c0483bb4c423c8cb8be4 *DESCRIPTION
+fdd202e7dd8334fad5370035d5d88540 *NAMESPACE
 6c56b4082ed2bcf8ac353b245253a47f *R/RcppExports.R
-d01a9e40a05482fb35e10f23fbb8e92d *R/bigKRLS.R
+2f71ba9746e375a7be08dd340f94c9c2 *R/bigKRLS.R
 11988f62f7c0aad2ba947b639559301d *R/init.R
-b1c965a11717b109baf474563a20af52 *R/utils.R
-a88318f200260f389dcc54f4985cfde0 *build/vignette.rds
+70d7a145269c33a240ef5958c9779cc5 *R/utils.R
+486f554e946d31545a72ee1f28aaf065 *build/vignette.rds
 fd7baee754c1ffee8af88f3477c5f102 *inst/doc/bigKRLS_basics.R
 ee544645b8a05b4d00a305da27915e13 *inst/doc/bigKRLS_basics.Rmd
-9d4ed64d74ff54f2d32f547900a5bf88 *inst/doc/bigKRLS_basics.html
+527b51771ebdf789a04c0976d8168351 *inst/doc/bigKRLS_basics.html
 7221591398f529de862053a697442933 *man/bigKRLS.Rd
 ac77859a15da04f42f0a5b389b59f6b2 *man/crossvalidate.bigKRLS.Rd
 547674019326a612c53b730fef72e31a *man/load.bigKRLS.Rd
@@ -28,5 +28,5 @@ ab3eb66d450b52a0fe6109b555f14c08 *src/Neffective.cpp
 1ea9c704af1f28c06400a2f32fd6c05c *src/solveforc.cpp
 d1a0a1a528da87c80646695d53371a25 *src/temp_kernel.cpp
 7b0ef2b79aabb0f0fe5dbde153371242 *tests/testthat.R
-51c17ac900b73b65e8d4fa588ed55e4c *tests/testthat/test_basic_usage.R
+ec47e6de9ee224f9fecdf4936520ce04 *tests/testthat/test_basic_usage.R
 ee544645b8a05b4d00a305da27915e13 *vignettes/bigKRLS_basics.Rmd
