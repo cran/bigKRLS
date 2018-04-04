@@ -7,8 +7,8 @@
 using namespace Rcpp;
 
 // BigDerivMat
-void BigDerivMat(SEXP pX, SEXP pK, SEXP pVCovMatC, SEXP pDerivatives, SEXP pVarAvgDerivatives, const arma::colvec Xsd, const arma::colvec coeffs, const double sigma);
-RcppExport SEXP _bigKRLS_BigDerivMat(SEXP pXSEXP, SEXP pKSEXP, SEXP pVCovMatCSEXP, SEXP pDerivativesSEXP, SEXP pVarAvgDerivativesSEXP, SEXP XsdSEXP, SEXP coeffsSEXP, SEXP sigmaSEXP) {
+void BigDerivMat(SEXP pX, SEXP pK, SEXP pVCovMatC, SEXP pDerivatives, SEXP pVarAvgDerivatives, const arma::colvec coeffs, const double sigma);
+RcppExport SEXP _bigKRLS_BigDerivMat(SEXP pXSEXP, SEXP pKSEXP, SEXP pVCovMatCSEXP, SEXP pDerivativesSEXP, SEXP pVarAvgDerivativesSEXP, SEXP coeffsSEXP, SEXP sigmaSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< SEXP >::type pX(pXSEXP);
@@ -16,10 +16,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< SEXP >::type pVCovMatC(pVCovMatCSEXP);
     Rcpp::traits::input_parameter< SEXP >::type pDerivatives(pDerivativesSEXP);
     Rcpp::traits::input_parameter< SEXP >::type pVarAvgDerivatives(pVarAvgDerivativesSEXP);
-    Rcpp::traits::input_parameter< const arma::colvec >::type Xsd(XsdSEXP);
     Rcpp::traits::input_parameter< const arma::colvec >::type coeffs(coeffsSEXP);
     Rcpp::traits::input_parameter< const double >::type sigma(sigmaSEXP);
-    BigDerivMat(pX, pK, pVCovMatC, pDerivatives, pVarAvgDerivatives, Xsd, coeffs, sigma);
+    BigDerivMat(pX, pK, pVCovMatC, pDerivatives, pVarAvgDerivatives, coeffs, sigma);
     return R_NilValue;
 END_RCPP
 }
@@ -35,6 +34,17 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// BigXtX
+void BigXtX(SEXP pA, SEXP pOut);
+RcppExport SEXP _bigKRLS_BigXtX(SEXP pASEXP, SEXP pOutSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type pA(pASEXP);
+    Rcpp::traits::input_parameter< SEXP >::type pOut(pOutSEXP);
+    BigXtX(pA, pOut);
+    return R_NilValue;
+END_RCPP
+}
 // BigTCrossProd
 void BigTCrossProd(SEXP pA, SEXP pB, SEXP pOut);
 RcppExport SEXP _bigKRLS_BigTCrossProd(SEXP pASEXP, SEXP pBSEXP, SEXP pOutSEXP) {
@@ -47,16 +57,27 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// BigEigen
-void BigEigen(SEXP pA, const double Eigtrunc, SEXP pValBigMat, SEXP pVecBigMat);
-RcppExport SEXP _bigKRLS_BigEigen(SEXP pASEXP, SEXP EigtruncSEXP, SEXP pValBigMatSEXP, SEXP pVecBigMatSEXP) {
+// BigXXt
+void BigXXt(SEXP pA, SEXP pOut);
+RcppExport SEXP _bigKRLS_BigXXt(SEXP pASEXP, SEXP pOutSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< SEXP >::type pA(pASEXP);
-    Rcpp::traits::input_parameter< const double >::type Eigtrunc(EigtruncSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type pOut(pOutSEXP);
+    BigXXt(pA, pOut);
+    return R_NilValue;
+END_RCPP
+}
+// BigEigen
+void BigEigen(SEXP pA, const double Neig, SEXP pValBigMat, SEXP pVecBigMat);
+RcppExport SEXP _bigKRLS_BigEigen(SEXP pASEXP, SEXP NeigSEXP, SEXP pValBigMatSEXP, SEXP pVecBigMatSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type pA(pASEXP);
+    Rcpp::traits::input_parameter< const double >::type Neig(NeigSEXP);
     Rcpp::traits::input_parameter< SEXP >::type pValBigMat(pValBigMatSEXP);
     Rcpp::traits::input_parameter< SEXP >::type pVecBigMat(pVecBigMatSEXP);
-    BigEigen(pA, Eigtrunc, pValBigMat, pVecBigMat);
+    BigEigen(pA, Neig, pValBigMat, pVecBigMat);
     return R_NilValue;
 END_RCPP
 }
@@ -124,9 +145,11 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_bigKRLS_BigDerivMat", (DL_FUNC) &_bigKRLS_BigDerivMat, 8},
+    {"_bigKRLS_BigDerivMat", (DL_FUNC) &_bigKRLS_BigDerivMat, 7},
     {"_bigKRLS_BigCrossProd", (DL_FUNC) &_bigKRLS_BigCrossProd, 3},
+    {"_bigKRLS_BigXtX", (DL_FUNC) &_bigKRLS_BigXtX, 2},
     {"_bigKRLS_BigTCrossProd", (DL_FUNC) &_bigKRLS_BigTCrossProd, 3},
+    {"_bigKRLS_BigXXt", (DL_FUNC) &_bigKRLS_BigXXt, 2},
     {"_bigKRLS_BigEigen", (DL_FUNC) &_bigKRLS_BigEigen, 4},
     {"_bigKRLS_BigGaussKernel", (DL_FUNC) &_bigKRLS_BigGaussKernel, 3},
     {"_bigKRLS_BigMultDiag", (DL_FUNC) &_bigKRLS_BigMultDiag, 3},
