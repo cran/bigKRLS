@@ -23,9 +23,9 @@ barplot(s, main = "Similarity to a Toyota Corolla",
 
 scatter.smooth(mtcars$hp, reg.out$derivatives[,3], ylab="HP's Effect", xlab="Horsepower", pch = 19, bty = "n",
                main="Horsepower's Marginal Effect on Fuel Efficiency",
-               sub="Toy Data from mtcars",
                col = colorRampPalette(c("blue", "red"))(nrow(mtcars))[rank(reg.out$coeffs^2)], 
                ylim = c(-0.042, 0.015), xlim = c(50, 400))
+abline(h=0, lty='dashed')
 
 
 ## ------------------------------------------------------------------------
