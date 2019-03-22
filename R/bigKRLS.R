@@ -42,7 +42,9 @@
 #' Political Analysis. Cambridge University Press. DOI=10.1017/pan.2018.33. pages 1-18.
 #' See also: Mohanty, Pete; Shaffer, Robert, 2018, 
 #' "Replication Data for: Messy Data, Robust Inference? Navigating Obstacles to Inference with bigKRLS", 
-#' https://doi.org/10.7910/DVN/CYYLOK, Harvard Dataverse, V1.
+#' https://doi.org/10.7910/DVN/CYYLOK, Harvard Dataverse, V1. Note those analyses were conducted using R 3.5.0; 
+#' the crossvalidation results may differ slightly starting with R version 3.6.0 and its new sample() function. 
+#' (bigKRLS only uses sample() for train/test splits, not for the actual estimation.)
 #' 
 #' Hainmueller, Jens and Chad Hazlett. 2014. "Kernel Regularized Least Squares: Reducing Misspecification Bias with a Flexible and Interpretable Machine 
 #' Learning Approach." Political Analysis. 22:143-68. \url{https://web.stanford.edu/~jhain/Paper/PA2014a.pdf} (Accessed May 20th, 2016).
@@ -793,7 +795,7 @@ summary.bigKRLS_CV <- function (object, ...)
   
   if(object$type == "crossvalidated"){
     
-    cat("Overview of Model Performance\n\n")
+    cat("\nOverview of Model Performance\n\n")
     
     cat("N:", length(unlist(object$indices)), "\n")
     cat("Seed:", object$seed, "\n\n")
