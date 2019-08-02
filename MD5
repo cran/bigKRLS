@@ -1,15 +1,15 @@
-ff5e78e250572a46256584616f7e9c53 *DESCRIPTION
+8fc39cc0ae95f57a11deab262d3923fe *DESCRIPTION
 fdd202e7dd8334fad5370035d5d88540 *NAMESPACE
-234ca57568a338cc20d7d35879eb42d1 *R/RcppExports.R
-02cc4caf1b5f78097b1374fb20ffd587 *R/bigKRLS.R
+508d671bcb6c8b7c4db85f958ac34c52 *R/RcppExports.R
+cae448080f5930093c76be55a7ad82ed *R/bigKRLS.R
 9fa8ac7bc9dc020ce60c3aff78bffde7 *R/bigKRLS_Rcpp_functions.R
 a6e3796d7ff35b97b5327a191535b376 *R/init.R
 70d7a145269c33a240ef5958c9779cc5 *R/utils.R
-3102c4a4f5fcf0ca3498fd164fed457f *build/vignette.rds
+16758481d140e665666cacd398ad5295 *build/vignette.rds
 c7ac50e752640657f16cbcac37051e78 *inst/doc/bigKRLS_basics.R
 4f8dd8d1bd1cc70da8ce0ab079a1b8e7 *inst/doc/bigKRLS_basics.Rmd
-119ff63327e097be5b463fa357ec69d1 *inst/doc/bigKRLS_basics.html
-98b225361dc16fdc88a422211aad005c *man/bigKRLS.Rd
+f07c5caf09d25f41872d9af5a664b017 *inst/doc/bigKRLS_basics.html
+f382151a42dee075c9c2265903e65225 *man/bigKRLS.Rd
 5ac337d51bec3a3a09de9dc838e92d27 *man/crossvalidate.bigKRLS.Rd
 9cb628f5229175970851f27c94ea8ac2 *man/load.bigKRLS.Rd
 0121c2c2236469dbbf841c4ee750fb07 *man/predict.bigKRLS.Rd
@@ -20,7 +20,7 @@ da357438311191a3f1c087b323a793d1 *man/summary.bigKRLS_CV.Rd
 03616eac969a2cd8374c7372f3e84ad3 *src/Makevars
 03616eac969a2cd8374c7372f3e84ad3 *src/Makevars.win
 648a86eed55fb58ea0dadb6156270108 *src/Neffective.cpp
-e137276e6840d4242fd10ee783055c38 *src/RcppExports.cpp
+8ba9581b8340035224953b0b1343941c *src/RcppExports.cpp
 75356cc4388d09e79cbefb2e9d2f1a67 *src/bigderiv_v3.cpp
 e1246281d7006877f55a7bd58c0017ad *src/crossprod.cpp
 30cd12bceb366e104236909f9f2dae11 *src/eigen.cpp
@@ -29,5 +29,5 @@ b307f13091d8762394aa253a3b826143 *src/multdiag.cpp
 08512b0b03f624669c7644479e455725 *src/solveforc.cpp
 c97a505a89595121434662f3cff1a13d *src/temp_kernel.cpp
 7b0ef2b79aabb0f0fe5dbde153371242 *tests/testthat.R
-9269a88cdd2ed046b27dfa9535a9918a *tests/testthat/test_basic_usage.R
+06e3ede1fe8184d5aa15ccf058e79230 *tests/testthat/test_basic_usage.R
 4f8dd8d1bd1cc70da8ce0ab079a1b8e7 *vignettes/bigKRLS_basics.Rmd

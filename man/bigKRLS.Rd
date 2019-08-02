@@ -96,14 +96,12 @@ Pete Mohanty and Robert Shaffer. 2018. "Messy Data, Robust Inference? Navigating
 Political Analysis. Cambridge University Press. DOI=10.1017/pan.2018.33. pages 1-18.
 See also: Mohanty, Pete; Shaffer, Robert, 2018, 
 "Replication Data for: Messy Data, Robust Inference? Navigating Obstacles to Inference with bigKRLS", 
-https://doi.org/10.7910/DVN/CYYLOK, Harvard Dataverse, V1. Note those analyses were conducted using R 3.5.0; 
-the crossvalidation results may differ slightly starting with R version 3.6.0 and its new sample() function. 
-(bigKRLS only uses sample() for train/test splits, not for the actual estimation.)
+https://doi.org/10.7910/DVN/CYYLOK, Harvard Dataverse, V1.
 
 Hainmueller, Jens and Chad Hazlett. 2014. "Kernel Regularized Least Squares: Reducing Misspecification Bias with a Flexible and Interpretable Machine 
 Learning Approach." Political Analysis. 22:143-68. \url{https://web.stanford.edu/~jhain/Paper/PA2014a.pdf} (Accessed May 20th, 2016).
 
-Recent papers, presentations, and other code available at \url{github.com/rdrr1990/code/}
+Recent papers, presentations, and other code available at \url{https://github.com/rdrr1990/code/}
 
 License 
 Code released under GPL (>= 2).
@@ -129,7 +127,7 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Pete Mohanty \email{pete.mohanty@gmail.com} (0000-0001-8531-3345)
+\strong{Maintainer}: Pete Mohanty \email{pete.mohanty@gmail.com} (0000-0002-4985-5160)
 
 Authors:
 \itemize{
